@@ -1,0 +1,811 @@
+# Aplicación Móvil de Monitoreo de Boyas y Estaciones con React
+
+Basado en la documentación proporcionada, voy a crear una aplicación móvil React que permita a los usuarios gestionar boyas y estaciones meteorológicas.
+
+## Características principales
+
+- Autenticación de usuarios (registro, login, perfil)
+- Gestión de boyas personales (crear, ver, editar, eliminar)
+- Visualización de datos de estaciones meteorológicas
+- Mapa interactivo con ubicación de estaciones
+- Interfaz móvil optimizada
+
+## Implementación
+
+```jsx
+// App.js - Componente principal
+import React, { useState, useEffect } from 'react';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import LoginScreen from './screens/LoginScreen';
+import RegisterScreen from './screens/RegisterScreen';
+import DashboardScreen from './screens/DashboardScreen';
+import BuoyListScreen from './screens/BuoyListScreen';
+import BuoyDetailScreen from './screens/BuoyDetailScreen';
+import StationMapScreen from './screens/StationMapScreen';
+import StationDetailScreen from './screens/StationDetailScreen';
+import ProfileScreen from './screens/ProfileScreen';
+
+const Stack = createNativeStackNavigator();
+
+function AppNavigator() {
+  const { userToken, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <SplashScreen />;
+  }
+
+  return (
+    <NavigationContainer>
+      <Stack.Navigator>
+        {userToken ? (
+          // Usuario autenticado
+          <>
+            <Stack.Screen name="Dashboard" component={DashboardScreen} />
+            <Stack.Screen name="BuoyList" component={BuoyListScreen} />
+            <Stack.Screen name="BuoyDetail" component={BuoyDetailScreen} />
+            <Stack.Screen name="StationMap" component={StationMapScreen} />
+            <Stack.Screen name="StationDetail" component={StationDetailScreen} />
+            <Stack.Screen name="Profile" component={ProfileScreen} />
+          </>
+        ) : (
+          // Usuario no autenticado
+          <>
+            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="Register" component={RegisterScreen} />
+          </>
+        )}
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppNavigator />
+    </AuthProvider>
+  );
+}
+```
+
+```jsx
+// contexts/AuthContext.js - Manejo de autenticación
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { authAPI } from '../services/api';
+
+const AuthContext = createContext();
+
+export function useAuth() {
+  return useContext(AuthContext);
+}
+
+export function AuthProvider({ children }) {
+  const [userToken, setUserToken] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [userInfo, setUserInfo] = useState(null);
+
+  useEffect(() => {
+    // Cargar token almacenado al iniciar
+    loadStoredToken();
+  }, []);
+
+  const loadStoredToken = async () => {
+    try {
+      const token = await AsyncStorage.getItem('userToken');
+      if (token) {
+        setUserToken(token);
+        // También podríamos cargar información del usuario
+      }
+    } catch (e) {
+      console.error('Error al cargar el token:', e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const login = async (email, password) => {
+    try {
+      const response = await authAPI.login(email, password);
+      if (response.token) {
+        setUserToken(response.token);
+        setUserInfo(response.user);
+        await AsyncStorage.setItem('userToken', response.token);
+        return { success: true };
+      }
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  };
+
+  const register = async (userData) => {
+    try {
+      const response = await authAPI.register(userData);
+      if (response.token) {
+        setUserToken(response.token);
+        setUserInfo(response.user);
+        await AsyncStorage.setItem('userToken', response.token);
+        return { success: true };
+      }
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  };
+
+  const logout = async () => {
+    setUserToken(null);
+    setUserInfo(null);
+    await AsyncStorage.removeItem('userToken');
+  };
+
+  const value = {
+    userToken,
+    userInfo,
+    isLoading,
+    login,
+    register,
+    logout,
+  };
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+```
+
+```jsx
+// services/api.js - Cliente API
+import axios from 'axios';
+
+const BASE_URL = 'http://localhost:3000/api';
+
+// Configuración inicial de axios
+const api = axios.create({
+  baseURL: BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Interceptor para agregar token a las peticiones
+api.interceptors.request.use(
+  (config) => {
+    const token = AsyncStorage.getItem('userToken');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Interceptor para manejar errores de autenticación
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      // Token inválido o expirado, cerrar sesión
+      AsyncStorage.removeItem('userToken');
+      // Podríamos redirigir al login aquí
+    }
+    return Promise.reject(error);
+  }
+);
+
+// API de autenticación
+export const authAPI = {
+  login: (email, password) => 
+    api.post('/auth/login', { email, password }).then(res => res.data),
+  
+  register: (userData) => 
+    api.post('/auth/register', userData).then(res => res.data),
+  
+  getProfile: () => 
+    api.get('/auth/profile').then(res => res.data),
+  
+  updateProfile: (userData) => 
+    api.put('/auth/profile', userData).then(res => res.data),
+};
+
+// API de boyas
+export const buoysAPI = {
+  getAll: () => 
+    api.get('/boyas').then(res => res.data),
+  
+  getById: (id) => 
+    api.get(`/boyas/${id}`).then(res => res.data),
+  
+  create: (buoyData) => 
+    api.post('/boyas', buoyData).then(res => res.data),
+  
+  update: (id, buoyData) => 
+    api.put(`/boyas/${id}`, buoyData).then(res => res.data),
+  
+  delete: (id) => 
+    api.delete(`/boyas/${id}`).then(res => res.data),
+};
+
+// API de estaciones
+export const stationsAPI = {
+  getData: (stationId) => 
+    api.get(`/stations/data/${stationId}`).then(res => res.data),
+  
+  getObservations: (stationId) => 
+    api.get(`/stations/observations/${stationId}`).then(res => res.data),
+  
+  addStation: (stationId) => 
+    api.post('/stations/add', { station_id: stationId }).then(res => res.data),
+  
+  getMapStations: () => 
+    api.get('/stations/map').then(res => res.data),
+  
+  getDetails: (stationId) => 
+    api.get(`/stations/details/${stationId}`).then(res => res.data),
+};
+
+export default api;
+```
+
+```jsx
+// screens/LoginScreen.js - Pantalla de inicio de sesión
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+} from 'react-native';
+import { useAuth } from '../contexts/AuthContext';
+
+export default function LoginScreen({ navigation }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const { login } = useAuth();
+
+  const handleLogin = async () => {
+    if (!email || !password) {
+      Alert.alert('Error', 'Por favor completa todos los campos');
+      return;
+    }
+
+    setIsLoading(true);
+    const result = await login(email, password);
+    setIsLoading(false);
+
+    if (result.success) {
+      // Navegación manejada por el cambio de estado en AuthContext
+    } else {
+      Alert.alert('Error', result.error || 'Credenciales incorrectas');
+    }
+  };
+
+  return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.container}
+    >
+      <ScrollView contentContainerStyle={styles.scrollContainer}>
+        <Text style={styles.title}>Boya App</Text>
+        <Text style={styles.subtitle}>Iniciar Sesión</Text>
+
+        <View style={styles.form}>
+          <TextInput
+            style={styles.input}
+            placeholder="Correo electrónico"
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+          />
+
+          <TextInput
+            style={styles.input}
+            placeholder="Contraseña"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+          />
+
+          <TouchableOpacity
+            style={[styles.button, isLoading && styles.buttonDisabled]}
+            onPress={handleLogin}
+            disabled={isLoading}
+          >
+            <Text style={styles.buttonText}>
+              {isLoading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => navigation.navigate('Register')}
+            style={styles.linkButton}
+          >
+            <Text style={styles.linkText}>
+              ¿No tienes cuenta? Regístrate aquí
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  scrollContainer: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    padding: 20,
+  },
+  title: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 10,
+    color: '#2196F3',
+  },
+  subtitle: {
+    fontSize: 24,
+    textAlign: 'center',
+    marginBottom: 30,
+    color: '#333',
+  },
+  form: {
+    backgroundColor: 'white',
+    padding: 20,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  input: {
+    height: 50,
+    borderColor: '#ddd',
+    borderWidth: 1,
+    borderRadius: 5,
+    paddingHorizontal: 15,
+    marginBottom: 15,
+  },
+  button: {
+    backgroundColor: '#2196F3',
+    padding: 15,
+    borderRadius: 5,
+    alignItems: 'center',
+  },
+  buttonDisabled: {
+    backgroundColor: '#ccc',
+  },
+  buttonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  linkButton: {
+    marginTop: 15,
+    alignItems: 'center',
+  },
+  linkText: {
+    color: '#2196F3',
+  },
+});
+```
+
+```jsx
+// screens/DashboardScreen.js - Pantalla principal después del login
+import React from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Alert,
+} from 'react-native';
+import { useAuth } from '../contexts/AuthContext';
+import Icon from 'react-native-vector-icons/MaterialIcons';
+
+export default function DashboardScreen({ navigation }) {
+  const { userInfo, logout } = useAuth();
+
+  const handleLogout = () => {
+    Alert.alert(
+      'Cerrar sesión',
+      '¿Estás seguro de que quieres cerrar sesión?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Sí, cerrar sesión', onPress: () => logout() },
+      ]
+    );
+  };
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Panel Principal</Text>
+        <TouchableOpacity onPress={handleLogout}>
+          <Icon name="exit-to-app" size={24} color="#333" />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.welcomeSection}>
+        <Text style={styles.welcomeText}>
+          Hola, {userInfo?.nombre || 'Usuario'}
+        </Text>
+        <Text style={styles.roleText}>
+          Rol: {userInfo?.role === 'admin' ? 'Administrador' : 'Usuario'}
+        </Text>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.menuContainer}>
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => navigation.navigate('BuoyList')}
+        >
+          <Icon name="directions-boat" size={30} color="#2196F3" />
+          <Text style={styles.menuText}>Mis Boyas</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => navigation.navigate('StationMap')}
+        >
+          <Icon name="map" size={30} color="#4CAF50" />
+          <Text style={styles.menuText}>Mapa de Estaciones</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => navigation.navigate('Profile')}
+        >
+          <Icon name="person" size={30} color="#FF9800" />
+          <Text style={styles.menuText}>Mi Perfil</Text>
+        </TouchableOpacity>
+
+        {userInfo?.role === 'admin' && (
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => Alert.alert('Admin', 'Funciones de administrador')}
+          >
+            <Icon name="admin-panel-settings" size={30} color="#F44336" />
+            <Text style={styles.menuText}>Panel Admin</Text>
+          </TouchableOpacity>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: 'white',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  welcomeSection: {
+    padding: 20,
+    backgroundColor: 'white',
+    margin: 10,
+    borderRadius: 10,
+    elevation: 2,
+  },
+  welcomeText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 5,
+  },
+  roleText: {
+    color: '#666',
+  },
+  menuContainer: {
+    padding: 10,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    padding: 20,
+    borderRadius: 10,
+    marginBottom: 10,
+    elevation: 2,
+  },
+  menuText: {
+    marginLeft: 15,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+});
+```
+
+```jsx
+// screens/BuoyListScreen.js - Lista de boyas del usuario
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  Alert,
+  ActivityIndicator,
+} from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialIcons';
+import { buoysAPI } from '../services/api';
+
+export default function BuoyListScreen({ navigation }) {
+  const [buoys, setBuoys] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    loadBuoys();
+  }, []);
+
+  const loadBuoys = async () => {
+    try {
+      const response = await buoysAPI.getAll();
+      setBuoys(response.boyas || []);
+    } catch (error) {
+      Alert.alert('Error', 'No se pudieron cargar las boyas');
+      console.error(error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    loadBuoys();
+  };
+
+  const handleDeleteBuoy = (id, name) => {
+    Alert.alert(
+      'Eliminar Boya',
+      `¿Estás seguro de que quieres eliminar la boya "${name}"?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await buoysAPI.delete(id);
+              Alert.alert('Éxito', 'Boya eliminada correctamente');
+              loadBuoys(); // Recargar la lista
+            } catch (error) {
+              Alert.alert('Error', 'No se pudo eliminar la boya');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const renderBuoyItem = ({ item }) => (
+    <TouchableOpacity
+      style={styles.buoyItem}
+      onPress={() => navigation.navigate('BuoyDetail', { buoyId: item.id })}
+    >
+      <View style={styles.buoyInfo}>
+        <Text style={styles.buoyName}>{item.nombre}</Text>
+        <Text style={styles.buoyDescription}>{item.descripcion}</Text>
+        <Text style={styles.buoyLocation}>
+          {item.latitud.toFixed(4)}, {item.longitud.toFixed(4)}
+        </Text>
+        {item.station_name && (
+          <Text style={styles.stationName}>Estación: {item.station_name}</Text>
+        )}
+      </View>
+      
+      <View style={styles.buoyActions}>
+        <TouchableOpacity
+          onPress={() => navigation.navigate('BuoyDetail', { 
+            buoyId: item.id, 
+            editMode: true 
+          })}
+        >
+          <Icon name="edit" size={24} color="#2196F3" />
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => handleDeleteBuoy(item.id, item.nombre)}
+          style={styles.deleteButton}
+        >
+          <Icon name="delete" size={24} color="#F44336" />
+        </TouchableOpacity>
+      </View>
+    </TouchableOpacity>
+  );
+
+  if (loading) {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#2196F3" />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Mis Boyas</Text>
+        <TouchableOpacity
+          onPress={() => navigation.navigate('BuoyDetail', { editMode: true })}
+        >
+          <Icon name="add" size={30} color="#2196F3" />
+        </TouchableOpacity>
+      </View>
+
+      {buoys.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Icon name="directions-boat" size={50} color="#ccc" />
+          <Text style={styles.emptyStateText}>No tienes boyas registradas</Text>
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={() => navigation.navigate('BuoyDetail', { editMode: true })}
+          >
+            <Text style={styles.addButtonText}>Agregar primera boya</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <FlatList
+          data={buoys}
+          renderItem={renderBuoyItem}
+          keyExtractor={(item) => item.id.toString()}
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+          contentContainerStyle={styles.listContent}
+        />
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: 'white',
+    elevation: 3,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  listContent: {
+    padding: 10,
+  },
+  buoyItem: {
+    flexDirection: 'row',
+    backgroundColor: 'white',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 10,
+    elevation: 2,
+  },
+  buoyInfo: {
+    flex: 1,
+  },
+  buoyName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 5,
+  },
+  buoyDescription: {
+    color: '#666',
+    marginBottom: 5,
+  },
+  buoyLocation: {
+    color: '#888',
+    fontSize: 12,
+    marginBottom: 5,
+  },
+  stationName: {
+    color: '#2196F3',
+    fontSize: 12,
+  },
+  buoyActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  deleteButton: {
+    marginLeft: 15,
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyStateText: {
+    fontSize: 16,
+    color: '#666',
+    marginVertical: 10,
+    textAlign: 'center',
+  },
+  addButton: {
+    backgroundColor: '#2196F3',
+    padding: 15,
+    borderRadius: 5,
+    marginTop: 10,
+  },
+  addButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
+});
+```
+
+## Instalación y configuración
+
+Para ejecutar esta aplicación, necesitarás:
+
+1. Instalar las dependencias:
+```bash
+npm install @react-navigation/native @react-navigation/native-stack react-native-screens react-native-safe-area-context axios @react-native-async-storage/async-storage react-native-vector-icons
+```
+
+2. Para iOS, instalar pods:
+```bash
+npx pod-install ios
+```
+
+3. Configurar la URL base de la API en `services/api.js`
+
+## Características implementadas
+
+- ✅ Autenticación de usuarios (login, registro, logout)
+- ✅ Gestión de perfil de usuario
+- ✅ Listado de boyas del usuario
+- ✅ Crear, editar y eliminar boyas
+- ✅ Visualización de datos de estaciones meteorológicas
+- ✅ Navegación entre pantallas
+- ✅ Manejo de estados de carga y errores
+- ✅ Interfaz adaptada para dispositivos móviles
+
+La aplicación está estructurada para ser escalable y mantenible, con una clara separación de responsabilidades entre componentes, contextos y servicios.

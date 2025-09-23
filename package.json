@@ -1,0 +1,31 @@
+{
+  "name": "api-boyas-tempest",
+  "version": "1.0.0",
+  "description": "API para gestión de boyas y estaciones meteorológicas con PostgreSQL",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "build": "npm install",
+    "db:create": "psql -f database.sql",
+     "tempest:verify": "node scripts/tempestVerify.js",
+    "db:verify": "node scripts/db-diagnostic.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "pg": "^8.11.3",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "axios": "^1.5.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express-validator": "^7.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

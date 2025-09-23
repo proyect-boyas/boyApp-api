@@ -1,0 +1,525 @@
+# Documentación Completa para API de Boyas y Estaciones
+
+## 📋 Información General
+- **Base URL**: `http://localhost:3000/api`
+- **Autenticación**: Bearer Token (obtenido del login)
+- **Content-Type**: `application/json`
+
+## 🔐 Headers Requeridos para todas las rutas
+```http
+Authorization: Bearer <tu_jwt_token>
+Content-Type: application/json
+```
+
+---
+
+# 🚢 API DE BOYAS - `/api/boyas`
+
+## 1. 🟢 GET /api/boyas - Obtener todas las boyas del usuario
+
+**URL:** `GET /api/boyas`
+
+**Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+```
+
+**Body:** Vacío
+
+**Respuesta Exitosa (200):**
+```json
+{
+  "boyas": [
+    {
+      "id": 1,
+      "nombre": "Boya Costa Norte",
+      "descripcion": "Monitoreo de condiciones marítimas",
+      "latitud": 19.4326,
+      "longitud": -99.1332,
+      "user_id": 1,
+      "station_id": 12345,
+      "station_name": "Estación Tempest 123",
+      "station_lat": 19.4326,
+      "station_lon": -99.1332,
+      "created_at": "2024-01-15T10:30:00.000Z",
+      "updated_at": "2024-01-15T10:30:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+## 2. 🟢 GET /api/boyas/:id - Obtener una boya específica
+
+**URL:** `GET /api/boyas/1`
+
+**Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+```
+
+**Body:** Vacío
+
+**Respuesta Exitosa (200):**
+```json
+{
+  "boya": {
+    "id": 1,
+    "nombre": "Boya Costa Norte",
+    "descripcion": "Monitoreo de condiciones marítimas",
+    "latitud": 19.4326,
+    "longitud": -99.1332,
+    "user_id": 1,
+    "station_id": 12345,
+    "station_name": "Estación Tempest 123",
+    "station_data": {
+      "air_temperature": 25.5,
+      "relative_humidity": 65,
+      "wind_speed": 12.3
+    },
+    "created_at": "2024-01-15T10:30:00.000Z",
+    "updated_at": "2024-01-15T10:30:00.000Z"
+  }
+}
+```
+
+**Error (404):**
+```json
+{
+  "error": "Boya no encontrada"
+}
+```
+
+---
+
+## 3. 🟡 POST /api/boyas - Crear una nueva boya
+
+**URL:** `POST /api/boyas`
+
+**Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+```
+
+**Body (JSON):**
+```json
+{
+  "nombre": "Boya Pacífico Sur",
+  "descripcion": "Monitoreo de oleaje y temperatura",
+  "latitud": 16.8531,
+  "longitud": -99.8237,
+  "station_id": 67890
+}
+```
+
+**Respuesta Exitosa (201):**
+```json
+{
+  "message": "Boya creada exitosamente",
+  "boya": {
+    "id": 2,
+    "nombre": "Boya Pacífico Sur",
+    "descripcion": "Monitoreo de oleaje y temperatura",
+    "latitud": 16.8531,
+    "longitud": -99.8237,
+    "user_id": 1,
+    "station_id": 67890,
+    "created_at": "2024-01-15T11:30:00.000Z",
+    "updated_at": "2024-01-15T11:30:00.000Z"
+  }
+}
+```
+
+**Error de Validación (400):**
+```json
+{
+  "errors": [
+    {
+      "msg": "El nombre es requerido",
+      "param": "nombre",
+      "location": "body"
+    }
+  ]
+}
+```
+
+---
+
+## 4. 🟠 PUT /api/boyas/:id - Actualizar una boya
+
+**URL:** `PUT /api/boyas/1`
+
+**Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+```
+
+**Body (JSON):**
+```json
+{
+  "nombre": "Boya Costa Norte Actualizada",
+  "descripcion": "Monitoreo mejorado de condiciones marítimas",
+  "latitud": 19.4327,
+  "longitud": -99.1333,
+  "station_id": 12346
+}
+```
+
+**Respuesta Exitosa (200):**
+```json
+{
+  "message": "Boya actualizada exitosamente",
+  "boya": {
+    "id": 1,
+    "nombre": "Boya Costa Norte Actualizada",
+    "descripcion": "Monitoreo mejorado de condiciones marítimas",
+    "latitud": 19.4327,
+    "longitud": -99.1333,
+    "user_id": 1,
+    "station_id": 12346,
+    "created_at": "2024-01-15T10:30:00.000Z",
+    "updated_at": "2024-01-15T12:30:00.000Z"
+  }
+}
+```
+
+**Error (404):**
+```json
+{
+  "error": "Boya no encontrada"
+}
+```
+
+---
+
+## 5. 🔴 DELETE /api/boyas/:id - Eliminar una boya
+
+**URL:** `DELETE /api/boyas/1`
+
+**Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+```
+
+**Body:** Vacío
+
+**Respuesta Exitosa (200):**
+```json
+{
+  "message": "Boya eliminada exitosamente"
+}
+```
+
+**Error (404):**
+```json
+{
+  "error": "Boya no encontrada"
+}
+```
+
+---
+
+# 🌤️ API DE ESTACIONES - `/api/stations`
+
+## 1. 🟢 GET /api/stations/data/:station_id - Obtener datos de estación
+
+**URL:** `GET /api/stations/data/12345`
+
+**Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+```
+
+**Body:** Vacío
+
+**Respuesta Exitosa (200):**
+```json
+{
+  "data": {
+    "station_id": 12345,
+    "station_name": "Estación Tempest 123",
+    "latitude": 19.4326,
+    "longitude": -99.1332,
+    "elevation": 2240,
+    "device_type": "tempest",
+    "firmware_revision": "123",
+    "status": {
+      "online": true,
+      "last_connect_time": 1673782800
+    }
+  },
+  "source": "api"
+}
+```
+
+**Posibles valores de `source`:**
+- `api`: Datos obtenidos directamente de Tempest API
+- `cache`: Datos cacheados (menos de 10 minutos)
+- `stale_cache`: Datos cacheados antiguos (cuando API falla)
+
+---
+
+## 2. 🟢 GET /api/stations/observations/:station_id - Observaciones actuales
+
+**URL:** `GET /api/stations/observations/12345`
+
+**Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+```
+
+**Body:** Vacío
+
+**Respuesta Exitosa (200):**
+```json
+{
+  "observations": {
+    "air_temperature": 25.5,
+    "relative_humidity": 65,
+    "sea_level_pressure": 1013.2,
+    "wind_avg": 12.3,
+    "wind_direction": 180,
+    "precipitation": 0.0,
+    "solar_radiation": 850,
+    "timestamp": 1673782800
+  },
+  "source": "api"
+}
+```
+
+**Fallback a cache:**
+```json
+{
+  "observations": {
+    "air_temperature": 24.8,
+    "relative_humidity": 68
+  },
+  "source": "cache_fallback",
+  "note": "Datos pueden no ser los más actuales"
+}
+```
+
+---
+
+## 3. 🟡 POST /api/stations/add - Agregar nueva estación
+
+**URL:** `POST /api/stations/add`
+
+**Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+```
+
+**Body (JSON):**
+```json
+{
+  "station_id": 12345
+}
+```
+
+**Respuesta Exitosa (201):**
+```json
+{
+  "message": "Estación agregada exitosamente",
+  "station": {
+    "station_id": 12345,
+    "station_name": "Estación Tempest 123",
+    "latitude": 19.4326,
+    "longitude": -99.1332
+  }
+}
+```
+
+**Error (400):**
+```json
+{
+  "error": "La estación ya existe"
+}
+```
+
+---
+
+## 4. 🟢 GET /api/stations/map - Estaciones para mapa
+
+**URL:** `GET /api/stations/map`
+
+**Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+```
+
+**Body:** Vacío
+
+**Respuesta Exitosa (200):**
+```json
+{
+  "stations": [
+    {
+      "station_id": 12345,
+      "nombre": "Estación Tempest 123",
+      "latitud": 19.4326,
+      "longitud": -99.1332
+    },
+    {
+      "station_id": 67890,
+      "nombre": "Estación Tempest 456",
+      "latitud": 16.8531,
+      "longitud": -99.8237
+    }
+  ]
+}
+```
+
+---
+
+## 5. 🟢 GET /api/stations/details/:station_id - Detalles de estación
+
+**URL:** `GET /api/stations/details/12345`
+
+**Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+```
+
+**Body:** Vacío
+
+**Respuesta Exitosa (200):**
+```json
+{
+  "station": {
+    "station_id": 12345,
+    "nombre": "Estación Tempest 123",
+    "latitud": 19.4326,
+    "longitud": -99.1332,
+    "datos": {
+      "device_type": "tempest",
+      "firmware_revision": "123",
+      "status": {
+        "online": true
+      }
+    },
+    "ultima_actualizacion": "2024-01-15T10:30:00.000Z"
+  }
+}
+```
+
+**Error (404):**
+```json
+{
+  "error": "Estación no encontrada"
+}
+```
+
+---
+
+## 🚨 Errores Comunes
+
+### Error de Autenticación (401):
+```json
+{
+  "error": "Token inválido o expirado"
+}
+```
+
+### Error de Servidor (500):
+```json
+{
+  "error": "Error del servidor"
+}
+```
+
+### Error de Validación (400):
+```json
+{
+  "errors": [
+    {
+      "msg": "El campo es requerido",
+      "param": "nombre",
+      "location": "body"
+    }
+  ]
+}
+```
+
+---
+
+## 📋 Colección de Postman
+
+### Variables de Colección:
+```json
+{
+  "baseUrl": "http://localhost:3000/api",
+  "token": "{{jwt_token}}"
+}
+```
+
+### Estructura de Carpetas:
+1. **Auth** (Primero obtener token)
+2. **Boyas**
+   - GET All Boyas
+   - GET Boya by ID
+   - CREATE Boya
+   - UPDATE Boya
+   - DELETE Boya
+3. **Stations**
+   - GET Station Data
+   - GET Station Observations
+   - ADD Station
+   - GET Stations Map
+   - GET Station Details
+
+### Script para Tests (Auto-guardar token):
+```javascript
+// En el test del endpoint de Login
+if (pm.response.code === 200) {
+    const response = pm.response.json();
+    pm.collectionVariables.set("token", response.token);
+    console.log("Token guardado:", response.token);
+}
+```
+
+---
+
+## 🔄 Flujo de Trabajo Recomendado
+
+1. **Login** → Obtener token JWT
+2. **GET /stations/map** → Ver estaciones disponibles
+3. **POST /stations/add** → Agregar estación de interés
+4. **GET /stations/data/:id** → Ver datos de estación
+5. **POST /boyas** → Crear boya vinculada a estación
+6. **GET /boyas** → Ver mis boyas
+7. **GET /stations/observations/:id** → Monitorear en tiempo real
+
+---
+
+## 📝 Notas Importantes
+
+### Para Boyas:
+- **station_id** es opcional (puede ser null)
+- **latitud** y **longitud** son requeridos
+- Cada usuario solo ve/modifica sus propias boyas
+
+### Para Estaciones:
+- Los datos se cachean por 10 minutos
+- Si la API de Tempest falla, se usan datos cacheados
+- Las estaciones son globales (no por usuario)
+- **station_id** debe ser un ID válido de Tempest Weather
+
+### Validaciones:
+- **Nombre**: requerido, mínimo 2 caracteres
+- **Latitud**: entre -90 y 90
+- **Longitud**: entre -180 y 180
+- **station_id**: debe existir en Tempest API
+
+¡Con esta documentación puedes probar completamente ambas APIs en Postman!

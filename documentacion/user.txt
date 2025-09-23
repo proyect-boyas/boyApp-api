@@ -1,0 +1,821 @@
+📚 Documentación Completa - API de Usuarios
+🌐 Información General
+Base URL: http://localhost:3000/api/auth
+Autenticación: Bearer Token (JWT)
+Content-Type: application/json
+
+
+
+
+🔓 RUTAS PÚBLICAS (Sin autenticación)
+1. 📝 POST /api/auth/register - Registrar usuario
+Descripción: Registra un nuevo usuario en el sistema (rol por defecto: user)
+Headers:
+
+
+Plain Text
+
+
+
+
+
+
+
+
+Content-Type: application/json
+
+
+Body (JSON):
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "nombre": "Juan Pérez",
+  "email": "juan@ejemplo.com",
+  "password": "password123",
+  "confirmPassword": "password123"
+}
+
+
+Respuesta Exitosa (201):
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "message": "Usuario registrado exitosamente",
+  "user": {
+    "id": 1,
+    "nombre": "Juan Pérez",
+    "email": "juan@ejemplo.com",
+    "role": "user"
+  },
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+
+
+Errores (400):
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "errors": [
+    {
+      "msg": "El nombre es requerido",
+      "param": "nombre",
+      "location": "body"
+    }
+  ]
+}
+
+
+
+
+
+2. 🔑 POST /api/auth/login - Iniciar sesión
+Descripción: Autentica un usuario y devuelve un token JWT
+Headers:
+
+
+Plain Text
+
+
+
+
+
+
+
+
+Content-Type: application/json
+
+
+Body (JSON):
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "email": "juan@ejemplo.com",
+  "password": "password123"
+}
+
+
+Respuesta Exitosa (200):
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "message": "Login exitoso",
+  "user": {
+    "id": 1,
+    "nombre": "Juan Pérez",
+    "email": "juan@ejemplo.com",
+    "role": "user"
+  },
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+
+
+Errores (400):
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "error": "Credenciales inválidas"
+}
+
+
+
+
+
+🔐 RUTAS PROTEGIDAS (Requieren autenticación)
+3. 👤 GET /api/auth/profile - Obtener perfil
+Descripción: Obtiene la información del usuario autenticado
+Headers:
+
+
+Plain Text
+
+
+
+
+
+
+
+
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+
+Body: Vacío
+Respuesta Exitosa (200):
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "user": {
+    "id": 1,
+    "nombre": "Juan Pérez",
+    "email": "juan@ejemplo.com",
+    "role": "user"
+  }
+}
+
+
+Errores (401):
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "error": "Token de acceso requerido"
+}
+
+
+
+
+
+4. ✏️ PUT /api/auth/profile - Actualizar perfil
+Descripción: Actualiza la información del usuario autenticado
+Headers:
+
+
+Plain Text
+
+
+
+
+
+
+
+
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+
+Body (JSON):
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "nombre": "Juan Carlos Pérez"
+}
+
+
+Respuesta Exitosa (200):
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "message": "Perfil actualizado exitosamente",
+  "user": {
+    "id": 1,
+    "nombre": "Juan Carlos Pérez",
+    "email": "juan@ejemplo.com",
+    "role": "user"
+  }
+}
+
+
+
+
+
+👑 RUTAS DE ADMINISTRACIÓN (Requieren rol admin)
+5. 📋 POST /api/auth/admin/users - Crear usuario (Admin)
+Descripción: Crea un nuevo usuario (solo administradores)
+Headers:
+
+
+Plain Text
+
+
+
+
+
+
+
+
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+
+Body (JSON):
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "nombre": "María Admin",
+  "email": "maria@ejemplo.com",
+  "password": "admin123",
+  "confirmPassword": "admin123",
+  "role": "admin"
+}
+
+
+Respuesta Exitosa (201):
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "message": "Usuario creado exitosamente",
+  "user": {
+    "id": 2,
+    "nombre": "María Admin",
+    "email": "maria@ejemplo.com",
+    "role": "admin"
+  }
+}
+
+
+Errores (403):
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "error": "Se requiere rol de administrador"
+}
+
+
+
+
+
+6. 👥 GET /api/auth/admin/users - Listar todos los usuarios
+Descripción: Obtiene una lista de todos los usuarios (solo administradores)
+Headers:
+
+
+Plain Text
+
+
+
+
+
+
+
+
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+
+Body: Vacío
+Respuesta Exitosa (200):
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "users": [
+    {
+      "id": 1,
+      "nombre": "Juan Pérez",
+      "email": "juan@ejemplo.com",
+      "role": "user",
+      "created_at": "2024-01-15T10:30:00.000Z",
+      "updated_at": "2024-01-15T10:30:00.000Z"
+    },
+    {
+      "id": 2,
+      "nombre": "María Admin",
+      "email": "maria@ejemplo.com",
+      "role": "admin",
+      "created_at": "2024-01-15T11:30:00.000Z",
+      "updated_at": "2024-01-15T11:30:00.000Z"
+    }
+  ]
+}
+
+
+
+
+
+7. 🔍 GET /api/auth/admin/users/:id - Obtener usuario específico
+Descripción: Obtiene información de un usuario específico (solo administradores)
+URL: GET /api/auth/admin/users/1
+Headers:
+
+
+Plain Text
+
+
+
+
+
+
+
+
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+
+Body: Vacío
+Respuesta Exitosa (200):
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "user": {
+    "id": 1,
+    "nombre": "Juan Pérez",
+    "email": "juan@ejemplo.com",
+    "role": "user",
+    "created_at": "2024-01-15T10:30:00.000Z",
+    "updated_at": "2024-01-15T10:30:00.000Z"
+  }
+}
+
+
+Errores (404):
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "error": "Usuario no encontrado"
+}
+
+
+
+
+
+8. 🛠️ PUT /api/auth/admin/users/:id - Actualizar usuario
+Descripción: Actualiza cualquier usuario (solo administradores)
+URL: PUT /api/auth/admin/users/1
+Headers:
+
+
+Plain Text
+
+
+
+
+
+
+
+
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+
+Body (JSON):
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "nombre": "Juan Carlos Pérez Actualizado",
+  "email": "juan.actualizado@ejemplo.com",
+  "role": "admin"
+}
+
+
+Respuesta Exitosa (200):
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "message": "Usuario actualizado exitosamente",
+  "user": {
+    "id": 1,
+    "nombre": "Juan Carlos Pérez Actualizado",
+    "email": "juan.actualizado@ejemplo.com",
+    "role": "admin"
+  }
+}
+
+
+
+
+
+9. 🗑️ DELETE /api/auth/admin/users/:id - Eliminar usuario
+Descripción: Elimina un usuario (solo administradores)
+URL: DELETE /api/auth/admin/users/1
+Headers:
+
+
+Plain Text
+
+
+
+
+
+
+
+
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+
+Body: Vacío
+Respuesta Exitosa (200):
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "message": "Usuario eliminado exitosamente"
+}
+
+
+Errores (400):
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "error": "No puedes eliminarte a ti mismo"
+}
+
+
+
+
+
+🚨 CÓDIGOS DE ERROR COMUNES
+400 - Bad Request
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "error": "El usuario ya existe"
+}
+
+
+401 - Unauthorized
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "error": "Token de acceso requerido"
+}
+
+
+403 - Forbidden
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "error": "Se requiere rol de administrador"
+}
+
+
+404 - Not Found
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "error": "Usuario no encontrado"
+}
+
+
+500 - Server Error
+
+
+JSON
+
+
+
+
+
+
+
+
+{
+  "error": "Error del servidor"
+}
+
+
+
+
+
+🎯 FLUJO RECOMENDADO EN POSTMAN
+1. Configurar variables de entorno en Postman
+
+
+JavaScript
+
+
+
+
+
+
+
+
+// Variables de colección:
+{
+  "baseUrl": "http://localhost:3000/api/auth",
+  "token": "{{jwt_token}}"
+}
+
+
+2. Script para auto-guardar token (en el test del login):
+
+
+JavaScript
+
+
+
+
+
+
+
+
+if (pm.response.code === 200) {
+    const response = pm.response.json();
+    pm.collectionVariables.set("token", response.token);
+    console.log("Token guardado:", response.token);
+}
+
+
+3. Secuencia de pruebas recomendada:
+POST {{baseUrl}}/register
+POST {{baseUrl}}/login
+GET {{baseUrl}}/profileAuthorization: Bearer {{token}}
+POST {{baseUrl}}/admin/usersAuthorization: Bearer {{admin_token}}
+GET {{baseUrl}}/admin/usersAuthorization: Bearer {{admin_token}}
+
+
+
+
+📋 REGLAS DE VALIDACIÓN
+Registro/Actualización de usuarios:
+nombre: Requerido, mínimo 2 caracteres
+email: Requerido, formato email válido
+password: Requerido, mínimo 6 caracteres
+confirmPassword: Debe coincidir con password
+role: Opcional, debe ser 'admin' o 'user'
+
+Login:
+email: Requerido, formato email válido
+password: Requerido
+
+
+
+
+🔐 ROLES Y PERMISOS
+Usuario normal (role: 'user')
+✅ Ver/editar su propio perfil
+❌ Acceder a rutas de administración
+❌ Crear/editar/eliminar otros usuarios
+
+Administrador (role: 'admin')
+✅ Todas las funciones de usuario normal
+✅ Crear nuevos usuarios (cualquier rol)
+✅ Listar todos los usuarios
+✅ Ver/editar/eliminar cualquier usuario
+❌ Eliminarse a sí mismo
+
+
+
+
+💡 CONSEJOS PARA POSTMAN
+1. Crear una colección "Boya API - Auth"
+2. Agregar carpetas:
+Public Routes (register, login)
+Protected Routes (profile)
+3. Usar variables de entorno para el token4. Agregar tests para verificar respuestas
+
+Ejemplo de test para login:
+
+
+JavaScript
+
+
+
+
+
+
+
+
+pm.test("Login exitoso", function() {
+    pm.response.to.have.status(200);
+    pm.response.to.have.jsonBody('message', 'Login exitoso');
+    pm.response.to.have.jsonBody('user');
+    pm.response.to.have.jsonBody('token');
+});
+
+
+
+

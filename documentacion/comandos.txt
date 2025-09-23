@@ -1,0 +1,13 @@
+diagnostico de la base de batos 
+
+npm run db:verify
+
+diagostico de la estacion 
+
+npm run tempest:verify
+
+crear bd 
+
+npm run db:create
+
+
