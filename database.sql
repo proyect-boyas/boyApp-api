@@ -18,36 +18,9 @@ CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_role ON users(role);
 CREATE INDEX idx_users_created_at ON users(created_at);
 
--- Tabla de boyas
-CREATE TABLE IF NOT EXISTS boyas (
-    id SERIAL PRIMARY KEY,
-    nombre VARCHAR(100) NOT NULL,
-    descripcion TEXT,
-    latitud DECIMAL(10, 8) NOT NULL,
-    longitud DECIMAL(11, 8) NOT NULL,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-    station_id VARCHAR(100) NULL, -- ID de la estación Tempest
-    sonda_id INTEGER NULL,
-    camara_id INTEGER NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Tabla de estaciones (cache de datos de Tempest)
-CREATE TABLE IF NOT EXISTS estaciones (
-    id SERIAL PRIMARY KEY,
-    station_id VARCHAR(100) UNIQUE NOT NULL,
-    nombre VARCHAR(100),
-    latitud DECIMAL(10, 8),
-    longitud DECIMAL(11, 8),
-    ultima_actualizacion TIMESTAMP,
-    datos JSONB, -- Datos completos de la estación
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
+-- Tabla de sondas (debe crearse ANTES de boyas por las FK)
 CREATE TABLE sondas (
-	 id SERIAL PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     sonda_id VARCHAR(50) UNIQUE NOT NULL,
     modelo VARCHAR(100),
     fabricante VARCHAR(100),
@@ -65,9 +38,9 @@ CREATE TABLE sondas (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-
+-- Tabla de camaras (debe crearse ANTES de boyas por las FK)
 CREATE TABLE camaras (
-	 id SERIAL PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     camara_id VARCHAR(50) UNIQUE NOT NULL,
     modelo VARCHAR(100),
     fabricante VARCHAR(100),
@@ -79,15 +52,45 @@ CREATE TABLE camaras (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Tabla de boyas (con FOREIGN KEYS correctas)
+CREATE TABLE boyas (
+    id SERIAL PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL,
+    descripcion TEXT,
+    latitud DECIMAL(10, 8) NOT NULL,
+    longitud DECIMAL(11, 8) NOT NULL,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    station_id VARCHAR(100) NULL, -- ID de la estación Tempest
+    sonda_id INTEGER REFERENCES sondas(id) ON DELETE SET NULL, -- FK a sondas
+    camara_id INTEGER REFERENCES camaras(id) ON DELETE SET NULL, -- FK a camaras
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
--- Índices para mejorar el rendimiento
+-- Tabla de estaciones (cache de datos de Tempest)
+CREATE TABLE estaciones (
+    id SERIAL PRIMARY KEY,
+    station_id VARCHAR(100) UNIQUE NOT NULL,
+    nombre VARCHAR(100),
+    latitud DECIMAL(10, 8),
+    longitud DECIMAL(11, 8),
+    ultima_actualizacion TIMESTAMP,
+    datos JSONB, -- Datos completos de la estación
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índices para mejorar el rendimiento (CORREGIDOS)
 CREATE INDEX idx_boyas_user_id ON boyas(user_id);
 CREATE INDEX idx_boyas_station_id ON boyas(station_id);
-CREATE INDEX idx_estaciones_station_id ON estaciones(station_id);
-
 CREATE INDEX idx_boyas_sonda_id ON boyas(sonda_id);
-CREATE INDEX idx_sondas_sonda_id ON sondas(sonda_id);
-
-
 CREATE INDEX idx_boyas_camara_id ON boyas(camara_id);
-CREATE INDEX idx_sondas_camara_id ON camaras(camara_id);
+
+CREATE INDEX idx_estaciones_station_id ON estaciones(station_id);
+CREATE INDEX idx_sondas_sonda_id ON sondas(sonda_id);  -- Para búsquedas por sonda_id
+CREATE INDEX idx_camaras_camara_id ON camaras(camara_id);  -- Para búsquedas por camara_id
+
+-- Índices adicionales recomendados
+CREATE INDEX idx_sondas_estado ON sondas(estado);
+CREATE INDEX idx_camaras_estado ON camaras(estado);
+CREATE INDEX idx_boyas_ubicacion ON boyas(latitud, longitud);

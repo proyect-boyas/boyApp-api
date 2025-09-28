@@ -8,7 +8,8 @@ import {
   getUserById, 
   updateUser, 
   deleteUser, 
-  createUserByAdmin 
+  createUserByAdmin ,
+ logout
 } from '../controllers/authController.js';
 import { 
   authenticateToken, 
@@ -21,8 +22,8 @@ const router = express.Router();
 // Rutas públicas
 router.post('/register', userValidation.register, register);
 router.post('/login', userValidation.login, login);
-
 // Rutas protegidas (requieren autenticación)
+router.post('/logout', authenticateToken, logout); 
 router.get('/profile', authenticateToken, getProfile);
 router.put('/profile', authenticateToken, userValidation.updateProfile, updateProfile);
 

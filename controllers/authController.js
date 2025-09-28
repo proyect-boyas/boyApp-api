@@ -304,7 +304,19 @@ const createUserByAdmin = async (req, res) => {
     res.status(500).json({ error: 'Error del servidor' });
   }
 };
-
+const logout = (req, res) => {
+  try {
+    // En una implementación con JWT, el logout se maneja principalmente del lado del cliente
+    // eliminando el token. Aquí simplemente devolvemos una respuesta exitosa.
+    res.json({ 
+      message: 'Sesión cerrada exitosamente',
+      logout: true
+    });
+  } catch (error) {
+    console.error('Error cerrando sesión:', error);
+    res.status(500).json({ error: 'Error del servidor' });
+  }
+};
 
 export { 
   register, 
@@ -315,5 +327,6 @@ export {
   getUserById, 
   updateUser, 
   deleteUser, 
-  createUserByAdmin 
+  createUserByAdmin,
+  logout
 };
