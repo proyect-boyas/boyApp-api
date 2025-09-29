@@ -10,11 +10,10 @@ const getBoyas = async (req, res) => {
       `SELECT b.*, e.nombre as station_name, e.latitud as station_lat, e.longitud as station_lon 
        FROM boyas b 
        LEFT JOIN estaciones e ON b.station_id = e.station_id 
-      -- WHERE b.user_id = $1 
        ORDER BY b.created_at DESC`,
       [userId]
     );
-
+// -- WHERE b.user_id = $1 
     res.json({ boyas: result.rows });
   } catch (error) {
     console.error("Error obteniendo boyas:", error);
@@ -32,12 +31,10 @@ const getBoya = async (req, res) => {
       `SELECT b.*, e.nombre as station_name, e.datos as station_data 
        FROM boyas b 
        LEFT JOIN estaciones e ON b.station_id = e.station_id 
-       WHERE b.id = $1 
-       --AND b.user_id = $2
-       `,
-      [id, userId]
+       WHERE b.id = $1`,
+      [id]
     );
-
+//  --AND b.user_id = $2   [id, userId]
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Boya no encontrada" });
     }
