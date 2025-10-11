@@ -1,25 +1,15 @@
 import { WebSocketServer } from 'ws';
-import http from 'http';
-import express from 'express';
 import jwt from 'jsonwebtoken';
-import db from "../config/database.js"; // Ajusta la ruta según tu estructura
-
-// Crear servidor HTTP y WebSocket
-const app = express();
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+import db from "../config/database.js";
 
 // Configuración del JWT
-const JWT_SECRET = process.env.JWT_SECRET ;
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // Almacenar conexiones de clientes móviles con información adicional
 const mobileClients = new Map(); // ws -> { userInfo, cameraId }
 
 // Almacenar streams de cámaras
 const cameraStreams = new Map(); // cameraId -> { ws, token }
-
-// Middleware para parsear JSON
-app.use(express.json());
 
 // Función para verificar token de cámara en la base de datos
 const verifyCameraToken = async (cameraId, token) => {
@@ -115,7 +105,14 @@ const checkCameraExists = async (cameraId) => {
   }
 };
 
-wss.on('connection', async (ws, request) => {
+// Función para inicializar WebSocket Server
+export const initializeWebSocket = (server) => {
+  const wss = new WebSocketServer({ 
+    server,
+    // No especificamos path para mantener compatibilidad con rutas existentes
+  });
+
+  wss.on('connection', async (ws, request) => {
     const url = request.url;
     const queryParams = new URLSearchParams(request.url.split('?')[1]);
     
@@ -248,7 +245,11 @@ wss.on('connection', async (ws, request) => {
     ws.on('error', (error) => {
         console.log('❌ Error WebSocket:', error);
     });
-});
+  });
+
+  console.log('✅ WebSocket Server inicializado');
+  return wss;
+};
 
 // Función para notificar cambios de estado de la cámara
 function notifyCameraStatus(cameraId, status) {
@@ -370,81 +371,12 @@ function broadcastToMobileClients(cameraId, message) {
     }
 }
 
-// Endpoint de estado mejorado
-app.get('/status', async (req, res) => {
-    const cameraStatus = {};
-    cameraStreams.forEach((stream, cameraId) => {
-        cameraStatus[cameraId] = {
-            connected: stream.ws.readyState === stream.ws.OPEN,
-            token: stream.token.substring(0, 10) + '...' // Mostrar solo parte del token por seguridad
-        };
-    });
-    
-    const mobileStatus = [];
-    mobileClients.forEach((clientInfo, ws) => {
-        mobileStatus.push({
-            userId: clientInfo.userInfo.id,
-            userName: clientInfo.userInfo.nombre,
-            cameraId: clientInfo.cameraId,
-            connectedAt: clientInfo.connectedAt,
-            connectionActive: ws.readyState === ws.OPEN
-        });
-    });
-    
-    // Obtener información de cámaras desde la BD
-    let dbCameras = [];
-    try {
-        const result = await db.query(
-            `SELECT camara_id, modelo, estado FROM camaras WHERE estado = 'ACTIVA' ORDER BY created_at DESC`
-        );
-        dbCameras = result.rows;
-    } catch (error) {
-        console.error('Error obteniendo cámaras de BD:', error);
-    }
-    
-    res.json({
-        status: 'running',
-        connectedCameras: cameraStreams.size,
-        connectedMobileClients: mobileClients.size,
-        cameras: cameraStatus,
-        mobileClients: mobileStatus,
-        databaseCameras: dbCameras
-    });
-});
-
-// Endpoint para verificar token de cámara
-app.post('/api/verify-camera-token', async (req, res) => {
-    const { token, cameraId } = req.body;
-    
-    if (!token || !cameraId) {
-        return res.status(400).json({
-            valid: false,
-            message: 'Token y cameraId requeridos'
-        });
-    }
-    
-    const isValid = await verifyCameraToken(cameraId, token);
-    
-    if (isValid) {
-        res.json({
-            valid: true,
-            message: 'Token válido'
-        });
-    } else {
-        res.status(401).json({
-            valid: false,
-            message: 'Token inválido'
-        });
-    }
-});
-
-const PORT = process.env.WS_PORT || 3001;
-server.listen(PORT, () => {
-    console.log(`🚀 Servidor WebSocket ejecutándose en puerto ${PORT}`);
-    console.log(`📱 Endpoint móvil: ws://localhost:${PORT}/mobile?token=TOKEN_USUARIO&cameraId=CAMERA_ID`);
-    console.log(`🎥 Endpoint stream: ws://localhost:${PORT}/stream?token=TOKEN_CAMARA&cameraId=CAMERA_ID`);
-    console.log(`📊 Status: http://localhost:${PORT}/status`);
-    console.log(`🔐 Verificación de tokens activada`);
-});
-
-export { wss, mobileClients, cameraStreams, verifyCameraToken, verifyUserToken };
+// Exportar funciones y variables
+export { 
+  mobileClients, 
+  cameraStreams, 
+  verifyCameraToken, 
+  verifyUserToken,
+  notifyCameraStatus,
+  broadcastToMobileClients
+};

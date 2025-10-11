@@ -1,0 +1,542 @@
+# 📚 Documentación Completa - WebSocket Streaming API
+
+## 🏗️ **Arquitectura del Sistema**
+
+```
+┌─────────────┐    WebSocket    ┌─────────────┐    WebSocket    ┌─────────────┐
+│   Cámara    │ ──────────────► │   Servidor  │ ──────────────► │  App Móvil  │
+│   (Stream)  │    /stream      │  Node.js    │    /mobile      │ (Cliente)   │
+└─────────────┘                 └─────────────┘                 └─────────────┘
+                                      │
+                                      │ HTTP REST
+                                      ▼
+                               ┌─────────────┐
+                               │   Base de   │
+                               │   Datos     │
+                               └─────────────┘
+```
+
+---
+
+## 🔐 **Autenticación y Tokens**
+
+### **Tipos de Tokens:**
+
+| Tipo | Uso | Formato | Duración |
+|------|-----|---------|----------|
+| **Token Cámara** | Autenticar cámaras | JWT | Sin expiración |
+| **Token Usuario** | Autenticar app móvil | JWT | Configurable |
+
+### **Estructura Token Cámara:**
+```json
+{
+  "camara_id": "camara_001",
+  "type": "camera",
+  "iat": 1635789123
+}
+```
+
+### **Estructura Token Usuario:**
+```json
+{
+  "userId": 1,
+  "nombre": "Juan Pérez",
+  "role": "user",
+  "iat": 1635789123,
+  "exp": 1635792723
+}
+```
+
+---
+
+## 🌐 **Endpoints WebSocket**
+
+### **1. 📹 Endpoint Cámara - `/stream`**
+**Propósito:** Transmitir video desde cámaras
+
+**URL:**
+```
+ws://localhost:3000/stream?token={TOKEN_CAMARA}&cameraId={CAMERA_ID}
+```
+
+**Parámetros:**
+| Parámetro | Tipo | Requerido | Descripción |
+|-----------|------|-----------|-------------|
+| `token` | string | ✅ | Token JWT de la cámara |
+| `cameraId` | string | ✅ | ID único de la cámara |
+
+**Mensajes de Entrada (Cámara → Servidor):**
+```javascript
+// Formato texto simple (recomendado)
+"frame_data_binary_or_base64"
+
+// Formato JSON estructurado
+{
+  "type": "video_data",
+  "frame": "base64_encoded_data",
+  "timestamp": 1635789123456
+}
+```
+
+**Eventos de Salida (Servidor → Cámara):**
+```json
+{
+  "type": "error",
+  "message": "Descripción del error"
+}
+```
+
+---
+
+### **2. 📱 Endpoint Móvil - `/mobile`**
+**Propósito:** Recibir video en app móvil
+
+**URL:**
+```
+ws://localhost:3000/mobile?token={TOKEN_USUARIO}&cameraId={CAMERA_ID}
+```
+
+**Parámetros:**
+| Parámetro | Tipo | Requerido | Descripción |
+|-----------|------|-----------|-------------|
+| `token` | string | ✅ | Token JWT del usuario |
+| `cameraId` | string | ✅ | ID de cámara a visualizar |
+
+**Mensajes de Entrada (Cliente → Servidor):**
+```json
+// Ping/Pong para mantener conexión
+{"type": "ping"}
+
+// Cambiar cámara en tiempo real
+{"type": "change_camera", "cameraId": "nueva_camara_001"}
+
+// Solicitar lista de cámaras
+{"type": "list_cameras"}
+```
+
+**Mensajes de Salida (Servidor → Cliente):**
+
+**Conexión Establecida:**
+```json
+{
+  "type": "connection_established",
+  "cameraId": "camara_001",
+  "user": {
+    "id": 1,
+    "nombre": "Juan Pérez",
+    "role": "user"
+  },
+  "timestamp": 1635789123456,
+  "cameraStatus": "online"
+}
+```
+
+**Frame de Video:**
+```json
+{
+  "type": "video_frame",
+  "cameraId": "camara_001",
+  "timestamp": 1635789123456,
+  "data": "base64_encoded_video_frame"
+}
+```
+
+**Estado de Cámara:**
+```json
+{
+  "type": "camera_status",
+  "cameraId": "camara_001",
+  "status": "online|offline",
+  "timestamp": 1635789123456
+}
+```
+
+**Respuesta Ping:**
+```json
+{
+  "type": "pong",
+  "timestamp": 1635789123456
+}
+```
+
+**Lista de Cámaras:**
+```json
+{
+  "type": "cameras_list",
+  "cameras": [
+    {
+      "cameraId": "camara_001",
+      "modelo": "AXIS P3364",
+      "fabricante": "Axis",
+      "estado": "ACTIVA",
+      "url": "rtsp://camara001/stream",
+      "online": true
+    }
+  ],
+  "timestamp": 1635789123456
+}
+```
+
+---
+
+## 📊 **Endpoints HTTP para Monitoreo**
+
+### **1. ℹ️ Información del Sistema**
+```
+GET /api/stream/info
+```
+
+**Respuesta:**
+```json
+{
+  "streaming": true,
+  "endpoints": {
+    "websocket_mobile": "ws://localhost:3000/mobile",
+    "websocket_stream": "ws://localhost:3000/stream",
+    "status": "http://localhost:3000/api/stream/status",
+    "verify_token": "http://localhost:3000/api/stream/verify-camera-token"
+  }
+}
+```
+
+### **2. 📈 Estado en Tiempo Real**
+```
+GET /api/stream/status
+```
+
+**Respuesta:**
+```json
+{
+  "status": "running",
+  "connectedCameras": 2,
+  "connectedMobileClients": 5,
+  "cameras": {
+    "camara_001": {
+      "connected": true,
+      "token": "eyJhbGciOiJ..."
+    }
+  },
+  "mobileClients": [
+    {
+      "userId": 1,
+      "userName": "Juan Pérez",
+      "cameraId": "camara_001",
+      "connectedAt": "2023-11-02T10:30:00.000Z",
+      "connectionActive": true
+    }
+  ],
+  "databaseCameras": [
+    {
+      "camara_id": "camara_001",
+      "modelo": "AXIS P3364",
+      "estado": "ACTIVA"
+    }
+  ],
+  "timestamp": "2023-11-02T10:35:23.456Z"
+}
+```
+
+### **3. ✅ Verificar Token de Cámara**
+```
+POST /api/stream/verify-camera-token
+```
+
+**Body:**
+```json
+{
+  "token": "eyJhbGciOiJ...",
+  "cameraId": "camara_001"
+}
+```
+
+**Respuesta Exitosa:**
+```json
+{
+  "valid": true,
+  "message": "Token válido"
+}
+```
+
+**Respuesta Error:**
+```json
+{
+  "valid": false,
+  "message": "Token inválido"
+}
+```
+
+### **4. 📋 Lista de Cámaras Disponibles**
+```
+GET /api/stream/cameras
+```
+
+**Respuesta:**
+```json
+{
+  "success": true,
+  "cameras": [
+    {
+      "id": "camara_001",
+      "modelo": "AXIS P3364",
+      "fabricante": "Axis",
+      "estado": "ACTIVA",
+      "url": "rtsp://192.168.1.100/stream",
+      "fecha_instalacion": "2023-01-15",
+      "fecha_ultimo_mantenimiento": "2023-10-20",
+      "created_at": "2023-01-15T08:00:00.000Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+### **5. 📊 Estadísticas del Sistema**
+```
+GET /api/stream/stats
+```
+
+**Respuesta:**
+```json
+{
+  "streaming": {
+    "connected_cameras": 2,
+    "connected_clients": 5,
+    "uptime": 86400
+  },
+  "database": {
+    "total_camaras": 10,
+    "camaras_activas": 8,
+    "camaras_inactivas": 2
+  },
+  "server": {
+    "timestamp": "2023-11-02T10:35:23.456Z",
+    "node_version": "v18.17.0",
+    "platform": "linux"
+  }
+}
+```
+
+---
+
+## 🗂️ **Colección Postman**
+
+```json
+{
+  "info": {
+    "name": "WebSocket Streaming API",
+    "description": "API para streaming de video en tiempo real",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "camera_token",
+      "value": "TU_TOKEN_CAMARA_AQUI",
+      "type": "string"
+    },
+    {
+      "key": "user_token",
+      "value": "TU_TOKEN_USUARIO_AQUI",
+      "type": "string"
+    },
+    {
+      "key": "camera_id",
+      "value": "camara_001",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "🌐 WebSocket Endpoints",
+      "item": [
+        {
+          "name": "📹 Conectar Cámara (Stream)",
+          "request": {
+            "url": "ws://{{base_url}}/stream?token={{camera_token}}&cameraId={{camera_id}}",
+            "method": "GET",
+            "description": "Endpoint para que las cámaras transmitan video"
+          }
+        },
+        {
+          "name": "📱 Conectar Cliente Móvil",
+          "request": {
+            "url": "ws://{{base_url}}/mobile?token={{user_token}}&cameraId={{camera_id}}",
+            "method": "GET",
+            "description": "Endpoint para que los clientes móviles reciban video"
+          }
+        }
+      ]
+    },
+    {
+      "name": "📊 HTTP Monitoring Endpoints",
+      "item": [
+        {
+          "name": "ℹ️ Información del Sistema",
+          "request": {
+            "url": "http://{{base_url}}/api/stream/info",
+            "method": "GET",
+            "description": "Obtener información de endpoints disponibles"
+          }
+        },
+        {
+          "name": "📈 Estado en Tiempo Real",
+          "request": {
+            "url": "http://{{base_url}}/api/stream/status",
+            "method": "GET",
+            "description": "Obtener estado actual de conexiones WebSocket"
+          }
+        },
+        {
+          "name": "✅ Verificar Token Cámara",
+          "request": {
+            "url": "http://{{base_url}}/api/stream/verify-camera-token",
+            "method": "POST",
+            "description": "Validar token de cámara antes de conectar",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{camera_token}}\",\n  \"cameraId\": \"{{camera_id}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "📋 Lista de Cámaras",
+          "request": {
+            "url": "http://{{base_url}}/api/stream/cameras",
+            "method": "GET",
+            "description": "Obtener lista de cámaras disponibles"
+          }
+        },
+        {
+          "name": "📊 Estadísticas del Sistema",
+          "request": {
+            "url": "http://{{base_url}}/api/stream/stats",
+            "method": "GET",
+            "description": "Obtener estadísticas de uso y rendimiento"
+          }
+        }
+      ]
+    },
+    {
+      "name": "🔄 Comandos WebSocket",
+      "item": [
+        {
+          "name": "Ping/Pong",
+          "request": {
+            "description": "Mantener conexión activa",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"type\": \"ping\"}"
+            }
+          }
+        },
+        {
+          "name": "Cambiar Cámara",
+          "request": {
+            "description": "Cambiar a otra cámara en tiempo real",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"type\": \"change_camera\", \"cameraId\": \"nueva_camara_002\"}"
+            }
+          }
+        },
+        {
+          "name": "Listar Cámaras",
+          "request": {
+            "description": "Solicitar lista de cámaras disponibles",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"type\": \"list_cameras\"}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+---
+
+## 🔧 **Cómo Usar la Colección Postman**
+
+### **1. Importar Colección:**
+1. Abre Postman
+2. Click **Import** → **Raw Text**
+3. Pega el JSON de la colección
+4. Click **Import**
+
+### **2. Configurar Variables:**
+1. Ve a **Environments**
+2. Crea nuevo environment llamado "Streaming API"
+3. Agrega las variables:
+   - `base_url`: `localhost:3000`
+   - `camera_token`: Tu token JWT de cámara
+   - `user_token`: Tu token JWT de usuario
+   - `camera_id`: `camara_001`
+
+### **3. Probar WebSockets:**
+1. Selecciona **"📹 Conectar Cámara"**
+2. Click **Connect**
+3. Envía mensajes en el panel de mensajes
+
+### **4. Probar HTTP Endpoints:**
+1. Selecciona cualquier endpoint HTTP
+2. Click **Send**
+3. Revisa la respuesta
+
+---
+
+## 🐛 **Guía de Solución de Problemas**
+
+### **Errores Comunes:**
+
+| Error | Causa | Solución |
+|-------|-------|----------|
+| `Failed to connect` | Servidor no disponible | Verificar que el servidor esté corriendo |
+| `Token inválido` | Token incorrecto o expirado | Verificar token con endpoint de verificación |
+| `Cámara no encontrada` | CameraId no existe en BD | Verificar lista de cámaras disponibles |
+| `No llegan frames` | Cámara desconectada | Verificar conexión de la cámara |
+
+### **Comandos de Diagnóstico:**
+```bash
+# Ver logs del servidor
+npm run dev
+
+# Ver conexiones activas
+curl http://localhost:3000/api/stream/status
+
+# Verificar token
+curl -X POST http://localhost:3000/api/stream/verify-camera-token \
+  -H "Content-Type: application/json" \
+  -d '{"token":"TU_TOKEN","cameraId":"camara_001"}'
+```
+
+---
+
+## 📞 **Soporte**
+
+**Para problemas técnicos:**
+1. Revisa los logs del servidor
+2. Verifica el estado con `/api/stream/status`
+3. Valida tokens con `/api/stream/verify-camera-token`
+
+**Para preguntas:**
+- Revisa esta documentación primero
+- Consulta los ejemplos de uso
+- Verifica la configuración de tokens
+
+---
+
+**¿Necesitas ayuda adicional con algún aspecto específico?**
+
+
+
+
+token=   eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjYW1hcmFfaWQiOiJDQU1fMDA0IiwidHlwZSI6ImNhbWVyYSJ9.4VNgNDxZph0P1xMfHL0DEiAWRUJKlnKyU_js7qSYdrs
+camara_id=  CAM_004
+
+url-rstp= 

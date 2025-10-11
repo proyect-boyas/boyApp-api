@@ -1,0 +1,136 @@
+{
+  "info": {
+    "name": "WebSocket Streaming API",
+    "description": "API para streaming de video en tiempo real",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "camera_token",
+      "value": "TU_TOKEN_CAMARA_AQUI",
+      "type": "string"
+    },
+    {
+      "key": "user_token",
+      "value": "TU_TOKEN_USUARIO_AQUI",
+      "type": "string"
+    },
+    {
+      "key": "camera_id",
+      "value": "camara_001",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "🌐 WebSocket Endpoints",
+      "item": [
+        {
+          "name": "📹 Conectar Cámara (Stream)",
+          "request": {
+            "url": "ws://{{base_url}}/stream?token={{camera_token}}&cameraId={{camera_id}}",
+            "method": "GET",
+            "description": "Endpoint para que las cámaras transmitan video"
+          }
+        },
+        {
+          "name": "📱 Conectar Cliente Móvil",
+          "request": {
+            "url": "ws://{{base_url}}/mobile?token={{user_token}}&cameraId={{camera_id}}",
+            "method": "GET",
+            "description": "Endpoint para que los clientes móviles reciban video"
+          }
+        }
+      ]
+    },
+    {
+      "name": "📊 HTTP Monitoring Endpoints",
+      "item": [
+        {
+          "name": "ℹ️ Información del Sistema",
+          "request": {
+            "url": "http://{{base_url}}/api/stream/info",
+            "method": "GET",
+            "description": "Obtener información de endpoints disponibles"
+          }
+        },
+        {
+          "name": "📈 Estado en Tiempo Real",
+          "request": {
+            "url": "http://{{base_url}}/api/stream/status",
+            "method": "GET",
+            "description": "Obtener estado actual de conexiones WebSocket"
+          }
+        },
+        {
+          "name": "✅ Verificar Token Cámara",
+          "request": {
+            "url": "http://{{base_url}}/api/stream/verify-camera-token",
+            "method": "POST",
+            "description": "Validar token de cámara antes de conectar",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{camera_token}}\",\n  \"cameraId\": \"{{camera_id}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "📋 Lista de Cámaras",
+          "request": {
+            "url": "http://{{base_url}}/api/stream/cameras",
+            "method": "GET",
+            "description": "Obtener lista de cámaras disponibles"
+          }
+        },
+        {
+          "name": "📊 Estadísticas del Sistema",
+          "request": {
+            "url": "http://{{base_url}}/api/stream/stats",
+            "method": "GET",
+            "description": "Obtener estadísticas de uso y rendimiento"
+          }
+        }
+      ]
+    },
+    {
+      "name": "🔄 Comandos WebSocket",
+      "item": [
+        {
+          "name": "Ping/Pong",
+          "request": {
+            "description": "Mantener conexión activa",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"type\": \"ping\"}"
+            }
+          }
+        },
+        {
+          "name": "Cambiar Cámara",
+          "request": {
+            "description": "Cambiar a otra cámara en tiempo real",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"type\": \"change_camera\", \"cameraId\": \"nueva_camara_002\"}"
+            }
+          }
+        },
+        {
+          "name": "Listar Cámaras",
+          "request": {
+            "description": "Solicitar lista de cámaras disponibles",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"type\": \"list_cameras\"}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
