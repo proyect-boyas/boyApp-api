@@ -14,5 +14,7 @@ router.use('/stations', stationRoutes);
 router.use('/sondas', SondasRoutes);
 router.use('/camaras', CamaraRotes);
 router.use('/', systemRoutes); // Rutas del sistema en la raíz
-
+router.get('/', (req, res) => {
+  res.json({ message: 'API funcionando' });
+});
 export default router;

@@ -10,7 +10,7 @@ const authenticateToken = async (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secreto_tempest');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET );
     
     // Verificar que el usuario aún existe en la base de datos y obtener su rol
     const result = await db.query(

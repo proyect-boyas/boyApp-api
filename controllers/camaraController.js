@@ -1,5 +1,24 @@
 import db from "../config/database.js";
 import { validationResult } from "express-validator";
+import jwt from "jsonwebtoken";
+
+// Configuración del JWT
+const JWT_SECRET = process.env.JWT_SECRET;
+
+// Función para generar token sin fecha de expiración
+const generateCameraToken = (camara_id) => {
+  return jwt.sign(
+    { 
+      camara_id: camara_id,
+      type: 'camera'
+    }, 
+    JWT_SECRET,
+    { 
+      // No incluir expiración
+      noTimestamp: true 
+    }
+  );
+};
 
 // Obtener todas las cámaras
 const getCamaras = async (req, res) => {
@@ -65,11 +84,14 @@ const createCamara = async (req, res) => {
       return res.status(400).json({ error: "El ID de cámara ya existe" });
     }
 
+    // Generar token automáticamente
+    const token = generateCameraToken(camara_id);
+
     const result = await db.query(
       `INSERT INTO camaras (
         camara_id, modelo, fabricante, fecha_instalacion, 
-        fecha_ultimo_mantenimiento, estado, url
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7) 
+        fecha_ultimo_mantenimiento, estado, url, token
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
        RETURNING *`,
       [
         camara_id,
@@ -78,7 +100,8 @@ const createCamara = async (req, res) => {
         fecha_instalacion,
         fecha_ultimo_mantenimiento,
         estado,
-        url
+        url,
+        token
       ]
     );
 
@@ -225,6 +248,82 @@ const getCamarasDisponibles = async (req, res) => {
   }
 };
 
+// Generar nuevo token para una cámara
+const generateNewToken = async (req, res) => {
+  try {
+    const { id_camara } = req.body;
+
+    if (!id_camara) {
+      return res.status(400).json({ error: "El ID de cámara es requerido" });
+    }
+
+    // Verificar que la cámara existe
+    const camaraResult = await db.query(
+      `SELECT id, camara_id FROM camaras WHERE id = $1 OR camara_id = $2`,
+      [id_camara, id_camara]
+    );
+
+    if (camaraResult.rows.length === 0) {
+      return res.status(404).json({ error: "Cámara no encontrada" });
+    }
+
+    const camara = camaraResult.rows[0];
+    
+    // Generar nuevo token
+    const newToken = generateCameraToken(camara.camara_id);
+
+    // Actualizar el token en la base de datos
+    const updateResult = await db.query(
+      `UPDATE camaras 
+       SET token = $1, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $2 
+       RETURNING id, camara_id, token, updated_at`,
+      [newToken, camara.id]
+    );
+
+    res.json({
+      message: "Token generado exitosamente",
+      camara: {
+        id: updateResult.rows[0].id,
+        camara_id: updateResult.rows[0].camara_id,
+        token: updateResult.rows[0].token,
+        updated_at: updateResult.rows[0].updated_at
+      }
+    });
+
+  } catch (error) {
+    console.error("Error generando nuevo token:", error);
+    res.status(500).json({ error: "Error del servidor" });
+  }
+};
+
+// Obtener token de una cámara específica
+const getCamaraToken = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await db.query(
+      `SELECT id, camara_id, token FROM camaras WHERE id = $1`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Cámara no encontrada" });
+    }
+
+    const camara = result.rows[0];
+    
+    res.json({
+      id: camara.id,
+      camara_id: camara.camara_id,
+      token: camara.token
+    });
+  } catch (error) {
+    console.error("Error obteniendo token de cámara:", error);
+    res.status(500).json({ error: "Error del servidor" });
+  }
+};
+
 export { 
   getCamaras, 
   getCamara, 
@@ -232,5 +331,7 @@ export {
   updateCamara, 
   deleteCamara, 
   updateMantenimientoCamara,
-  getCamarasDisponibles
+  getCamarasDisponibles,
+  generateNewToken,
+  getCamaraToken
 };

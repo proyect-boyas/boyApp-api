@@ -1,30 +1,29 @@
-import express from 'express';
-import { 
-  getCamaras,  
-  getCamara, 
-  createCamara, 
-  updateCamara, 
-  deleteCamara, 
+// routes/camaras.js
+import express from "express";
+import {
+  getCamaras,
+  getCamara,
+  createCamara,
+  updateCamara,
+  deleteCamara,
   updateMantenimientoCamara,
-  getCamarasDisponibles
-} from '../controllers/camaraController.js';
-import { authenticateToken } from '../middleware/auth.js';
-import { camaraValidation, mantenimientoValidation } from '../middleware/validation.js';
+  getCamarasDisponibles,
+  generateNewToken,
+  getCamaraToken
+} from "../controllers/camaraController.js";
+import { camaraValidation } from "../middleware/validation.js";
 
 const router = express.Router();
 
-// Todas las rutas requieren autenticación
-router.use(authenticateToken);
-
-// Rutas básicas
-router.get('/', getCamaras);
-router.get('/disponibles', getCamarasDisponibles);
-router.get('/:id', getCamara);
-router.post('/', camaraValidation, createCamara);
-router.put('/:id', camaraValidation, updateCamara);
-router.delete('/:id', deleteCamara);
-
-// Rutas específicas
-router.put('/:id/mantenimiento', mantenimientoValidation, updateMantenimientoCamara);
+// Rutas existentes
+router.get("/", getCamaras);
+router.get("/disponibles", getCamarasDisponibles);
+router.get("/:id", getCamara);
+router.get("/:id/token", getCamaraToken); // Nueva ruta para obtener token
+router.post("/", camaraValidation, createCamara);
+router.put("/:id", camaraValidation, updateCamara);
+router.delete("/:id", deleteCamara);
+router.patch("/:id/mantenimiento", updateMantenimientoCamara);
+router.post("/generar-token", generateNewToken);
 
 export default router;

@@ -1,14 +1,19 @@
 import { WebSocketServer } from 'ws';
 import http from 'http';
 import express from 'express';
+import jwt from 'jsonwebtoken';
+import db from "../config/database.js"; // Ajusta la ruta según tu estructura
 
 // Crear servidor HTTP y WebSocket
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
+// Configuración del JWT
+const JWT_SECRET = process.env.JWT_SECRET ;
+
 // Almacenar conexiones de clientes móviles con información adicional
-const mobileClients = new Map(); // ws -> { token, userId, cameraId }
+const mobileClients = new Map(); // ws -> { userInfo, cameraId }
 
 // Almacenar streams de cámaras
 const cameraStreams = new Map(); // cameraId -> { ws, token }
@@ -16,7 +21,101 @@ const cameraStreams = new Map(); // cameraId -> { ws, token }
 // Middleware para parsear JSON
 app.use(express.json());
 
-wss.on('connection', (ws, request) => {
+// Función para verificar token de cámara en la base de datos
+const verifyCameraToken = async (cameraId, token) => {
+  try {
+    // Verificar el token JWT primero
+    let decoded;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch (jwtError) {
+      console.log(`Token JWT inválido para cámara ${cameraId}:`, jwtError.message);
+      return false;
+    }
+
+    // Verificar que el token decodificado coincida con el cameraId
+    if (decoded.camara_id !== cameraId) {
+      console.log(`Token no coincide con cameraId. Token: ${decoded.camara_id}, Solicitado: ${cameraId}`);
+      return false;
+    }
+
+    // Verificar en la base de datos que el token existe y está activo
+    const result = await db.query(
+      `SELECT id, camara_id, token, estado FROM camaras WHERE camara_id = $1 AND token = $2 AND estado = 'ACTIVA'`,
+      [cameraId, token]
+    );
+
+    if (result.rows.length === 0) {
+      console.log(`Cámara ${cameraId} no encontrada, token inválido o cámara inactiva`);
+      return false;
+    }
+
+    console.log(`✅ Token verificado para cámara ${cameraId}`);
+    return true;
+
+  } catch (error) {
+    console.error('Error verificando token en BD:', error);
+    return false;
+  }
+};
+
+// Función para verificar token de usuario móvil (basado en tu middleware)
+const verifyUserToken = async (token) => {
+  try {
+    if (!token) {
+      return { valid: false, error: 'Token de acceso requerido' };
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET);
+    
+    // Verificar que el usuario aún existe en la base de datos y obtener su rol
+    const result = await db.query(
+      'SELECT id, nombre, email, role FROM users WHERE id = $1', 
+      [decoded.userId]
+    );
+    
+    if (result.rows.length === 0) {
+      return { valid: false, error: 'Usuario no válido' };
+    }
+
+    const user = result.rows[0];
+    
+    return {
+      valid: true,
+      user: {
+        id: user.id,
+        nombre: user.nombre,
+        email: user.email,
+        role: user.role
+      }
+    };
+
+  } catch (error) {
+    if (error.name === 'TokenExpiredError') {
+      return { valid: false, error: 'Token expirado' };
+    } else if (error.name === 'JsonWebTokenError') {
+      return { valid: false, error: 'Token inválido' };
+    } else {
+      return { valid: false, error: 'Error al verificar token' };
+    }
+  }
+};
+
+// Función para verificar que la cámara existe y está activa
+const checkCameraExists = async (cameraId) => {
+  try {
+    const result = await db.query(
+      `SELECT id, camara_id, estado FROM camaras WHERE camara_id = $1 AND estado = 'ACTIVA'`,
+      [cameraId]
+    );
+    return result.rows.length > 0;
+  } catch (error) {
+    console.error('Error verificando cámara en BD:', error);
+    return false;
+  }
+};
+
+wss.on('connection', async (ws, request) => {
     const url = request.url;
     const queryParams = new URLSearchParams(request.url.split('?')[1]);
     
@@ -32,8 +131,18 @@ wss.on('connection', (ws, request) => {
             return;
         }
         
-        console.log(`Cámara ${cameraId} conectada con token: ${token}`);
+        // Verificar token y cameraId en la base de datos
+        const isValid = await verifyCameraToken(cameraId, token);
+        if (!isValid) {
+            ws.close(1008, 'Token inválido o cámara no autorizada');
+            return;
+        }
+        
+        console.log(`✅ Cámara ${cameraId} autenticada y conectada`);
         cameraStreams.set(cameraId, { ws, token });
+        
+        // Notificar a clientes móviles que la cámara está en línea
+        notifyCameraStatus(cameraId, 'online');
         
         ws.on('message', (data) => {
             try {
@@ -41,9 +150,8 @@ wss.on('connection', (ws, request) => {
                 const message = {
                     type: 'video_frame',
                     cameraId: cameraId,
-                    token: token,
                     timestamp: Date.now(),
-                    data: data.toString('base64') // Convertir a base64 para transporte seguro
+                    data: data.toString('base64')
                 };
                 
                 // Reenviar el frame a todos los clientes móviles suscritos a esta cámara
@@ -55,27 +163,48 @@ wss.on('connection', (ws, request) => {
         });
         
         ws.on('close', () => {
-            console.log(`Cámara ${cameraId} desconectada`);
+            console.log(`🔴 Cámara ${cameraId} desconectada`);
             cameraStreams.delete(cameraId);
+            // Notificar a clientes que la cámara está offline
+            notifyCameraStatus(cameraId, 'offline');
+        });
+        
+        ws.on('error', (error) => {
+            console.error(`❌ Error en cámara ${cameraId}:`, error);
+            cameraStreams.delete(cameraId);
+            notifyCameraStatus(cameraId, 'offline');
         });
         
     } else if (url.startsWith('/mobile')) {
         // Conexión de la app móvil con parámetros
         const token = queryParams.get('token');
-        const userId = queryParams.get('userId');
         const cameraId = queryParams.get('cameraId') || 'default';
         
-        if (!token || !userId) {
-            ws.close(1008, 'Token y userId requeridos');
+        if (!token) {
+            ws.close(1008, 'Token requerido');
             return;
         }
         
-        console.log(`Cliente móvil conectado - User: ${userId}, Cámara: ${cameraId}`);
+        // Verificar token de usuario usando tu middleware
+        const authResult = await verifyUserToken(token);
+        if (!authResult.valid) {
+            ws.close(1008, authResult.error);
+            return;
+        }
+        
+        // Verificar que la cámara solicitada existe y está activa
+        const cameraExists = await checkCameraExists(cameraId);
+        if (!cameraExists) {
+            ws.close(1008, 'Cámara no encontrada o inactiva');
+            return;
+        }
+        
+        const userInfo = authResult.user;
+        console.log(`✅ Cliente móvil conectado - User: ${userInfo.nombre}, Cámara: ${cameraId}`);
         
         // Almacenar cliente con información adicional
         mobileClients.set(ws, { 
-            token, 
-            userId, 
+            userInfo, 
             cameraId,
             connectedAt: new Date()
         });
@@ -84,19 +213,24 @@ wss.on('connection', (ws, request) => {
         ws.send(JSON.stringify({
             type: 'connection_established',
             cameraId: cameraId,
-            userId: userId,
-            timestamp: Date.now()
+            user: {
+                id: userInfo.id,
+                nombre: userInfo.nombre,
+                role: userInfo.role
+            },
+            timestamp: Date.now(),
+            cameraStatus: cameraStreams.has(cameraId) ? 'online' : 'offline'
         }));
         
         ws.on('close', () => {
             const clientInfo = mobileClients.get(ws);
-            console.log(`Cliente móvil desconectado - User: ${clientInfo?.userId}, Cámara: ${clientInfo?.cameraId}`);
+            console.log(`🔴 Cliente móvil desconectado - User: ${clientInfo?.userInfo.nombre}, Cámara: ${clientInfo?.cameraId}`);
             mobileClients.delete(ws);
         });
         
         ws.on('error', (error) => {
             const clientInfo = mobileClients.get(ws);
-            console.log(`Error en cliente móvil - User: ${clientInfo?.userId}:`, error);
+            console.log(`❌ Error en cliente móvil - User: ${clientInfo?.userInfo.nombre}:`, error);
             mobileClients.delete(ws);
         });
         
@@ -112,9 +246,30 @@ wss.on('connection', (ws, request) => {
     }
     
     ws.on('error', (error) => {
-        console.log('Error WebSocket:', error);
+        console.log('❌ Error WebSocket:', error);
     });
 });
+
+// Función para notificar cambios de estado de la cámara
+function notifyCameraStatus(cameraId, status) {
+  const statusMessage = {
+    type: 'camera_status',
+    cameraId: cameraId,
+    status: status,
+    timestamp: Date.now()
+  };
+  
+  // Enviar a todos los clientes suscritos a esta cámara
+  mobileClients.forEach((clientInfo, clientWs) => {
+    if (clientInfo.cameraId === cameraId && clientWs.readyState === clientWs.OPEN) {
+      try {
+        clientWs.send(JSON.stringify(statusMessage));
+      } catch (error) {
+        console.error(`Error enviando estado de cámara a usuario ${clientInfo.userInfo.nombre}:`, error);
+      }
+    }
+  });
+}
 
 function handleMobileMessage(ws, message) {
     const clientInfo = mobileClients.get(ws);
@@ -131,19 +286,67 @@ function handleMobileMessage(ws, message) {
             
         case 'change_camera':
             const newCameraId = message.cameraId;
-            console.log(`Usuario ${clientInfo.userId} cambiando a cámara: ${newCameraId}`);
-            clientInfo.cameraId = newCameraId;
+            console.log(`Usuario ${clientInfo.userInfo.nombre} cambiando a cámara: ${newCameraId}`);
             
-            ws.send(JSON.stringify({
-                type: 'camera_changed',
-                cameraId: newCameraId,
-                timestamp: Date.now()
-            }));
+            // Verificar que la nueva cámara existe
+            checkCameraExists(newCameraId).then(exists => {
+                if (exists) {
+                    clientInfo.cameraId = newCameraId;
+                    
+                    ws.send(JSON.stringify({
+                        type: 'camera_changed',
+                        cameraId: newCameraId,
+                        timestamp: Date.now(),
+                        cameraStatus: cameraStreams.has(newCameraId) ? 'online' : 'offline'
+                    }));
+                } else {
+                    ws.send(JSON.stringify({
+                        type: 'error',
+                        message: 'Cámara no encontrada',
+                        cameraId: newCameraId
+                    }));
+                }
+            });
+            break;
+            
+        case 'list_cameras':
+            // Obtener lista de cámaras disponibles
+            getAvailableCameras().then(cameras => {
+                ws.send(JSON.stringify({
+                    type: 'cameras_list',
+                    cameras: cameras,
+                    timestamp: Date.now()
+                }));
+            });
             break;
             
         default:
-            console.log(`Mensaje no reconocido de usuario ${clientInfo.userId}:`, message.type);
+            console.log(`Mensaje no reconocido de usuario ${clientInfo.userInfo.nombre}:`, message.type);
     }
+}
+
+// Función para obtener cámaras disponibles
+async function getAvailableCameras() {
+  try {
+    const result = await db.query(
+      `SELECT camara_id, modelo, fabricante, estado, url 
+       FROM camaras 
+       WHERE estado = 'ACTIVA'
+       ORDER BY created_at DESC`
+    );
+    
+    return result.rows.map(camara => ({
+      cameraId: camara.camara_id,
+      modelo: camara.modelo,
+      fabricante: camara.fabricante,
+      estado: camara.estado,
+      url: camara.url,
+      online: cameraStreams.has(camara.camara_id)
+    }));
+  } catch (error) {
+    console.error('Error obteniendo cámaras:', error);
+    return [];
+  }
 }
 
 function broadcastToMobileClients(cameraId, message) {
@@ -156,52 +359,73 @@ function broadcastToMobileClients(cameraId, message) {
                 clientWs.send(JSON.stringify(message));
                 clientsNotified++;
             } catch (error) {
-                console.error(`Error enviando a usuario ${clientInfo.userId}:`, error);
+                console.error(`Error enviando a usuario ${clientInfo.userInfo.nombre}:`, error);
                 mobileClients.delete(clientWs);
             }
         }
     });
     
-    if (clientsNotified > 0) {
-        console.log(`Frame de cámara ${cameraId} enviado a ${clientsNotified} clientes`);
+    if (clientsNotified > 0 && clientsNotified % 30 === 0) {
+        console.log(`📤 Frame de cámara ${cameraId} enviado a ${clientsNotified} clientes`);
     }
 }
 
 // Endpoint de estado mejorado
-app.get('/status', (req, res) => {
+app.get('/status', async (req, res) => {
     const cameraStatus = {};
     cameraStreams.forEach((stream, cameraId) => {
         cameraStatus[cameraId] = {
             connected: stream.ws.readyState === stream.ws.OPEN,
-            token: stream.token
+            token: stream.token.substring(0, 10) + '...' // Mostrar solo parte del token por seguridad
         };
     });
     
     const mobileStatus = [];
     mobileClients.forEach((clientInfo, ws) => {
         mobileStatus.push({
-            userId: clientInfo.userId,
+            userId: clientInfo.userInfo.id,
+            userName: clientInfo.userInfo.nombre,
             cameraId: clientInfo.cameraId,
             connectedAt: clientInfo.connectedAt,
             connectionActive: ws.readyState === ws.OPEN
         });
     });
     
+    // Obtener información de cámaras desde la BD
+    let dbCameras = [];
+    try {
+        const result = await db.query(
+            `SELECT camara_id, modelo, estado FROM camaras WHERE estado = 'ACTIVA' ORDER BY created_at DESC`
+        );
+        dbCameras = result.rows;
+    } catch (error) {
+        console.error('Error obteniendo cámaras de BD:', error);
+    }
+    
     res.json({
         status: 'running',
         connectedCameras: cameraStreams.size,
         connectedMobileClients: mobileClients.size,
         cameras: cameraStatus,
-        mobileClients: mobileStatus
+        mobileClients: mobileStatus,
+        databaseCameras: dbCameras
     });
 });
 
-// Endpoint para verificar token (simulado)
-app.post('/api/verify-token', (req, res) => {
-    const { token, userId } = req.body;
+// Endpoint para verificar token de cámara
+app.post('/api/verify-camera-token', async (req, res) => {
+    const { token, cameraId } = req.body;
     
-    // Aquí iría tu lógica real de verificación de token
-    if (token && userId) {
+    if (!token || !cameraId) {
+        return res.status(400).json({
+            valid: false,
+            message: 'Token y cameraId requeridos'
+        });
+    }
+    
+    const isValid = await verifyCameraToken(cameraId, token);
+    
+    if (isValid) {
         res.json({
             valid: true,
             message: 'Token válido'
@@ -217,9 +441,10 @@ app.post('/api/verify-token', (req, res) => {
 const PORT = process.env.WS_PORT || 3001;
 server.listen(PORT, () => {
     console.log(`🚀 Servidor WebSocket ejecutándose en puerto ${PORT}`);
-    console.log(`📱 Endpoint móvil: ws://localhost:${PORT}/mobile?token=TOKEN&userId=USER_ID&cameraId=CAMERA_ID`);
-    console.log(`🎥 Endpoint stream: ws://localhost:${PORT}/stream?token=TOKEN&cameraId=CAMERA_ID`);
+    console.log(`📱 Endpoint móvil: ws://localhost:${PORT}/mobile?token=TOKEN_USUARIO&cameraId=CAMERA_ID`);
+    console.log(`🎥 Endpoint stream: ws://localhost:${PORT}/stream?token=TOKEN_CAMARA&cameraId=CAMERA_ID`);
     console.log(`📊 Status: http://localhost:${PORT}/status`);
+    console.log(`🔐 Verificación de tokens activada`);
 });
 
-export { wss, mobileClients, cameraStreams };
+export { wss, mobileClients, cameraStreams, verifyCameraToken, verifyUserToken };
