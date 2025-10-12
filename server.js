@@ -12,8 +12,8 @@ import {
 } from './middleware/server.js';
 import routes from './routers/index.js';
 
-// Importar configuración WebSocket
-import { initializeWebSocket, mobileClients, cameraStreams, verifyCameraToken } from './websocket/websocket.js';
+// Importar configuración WebSocket (CORRECCIÓN: importamos cameraClients)
+import { initializeWebSocket, mobileClients, cameraClients, verifyCameraToken } from './websocket/websocket.js';
 
 // Importar rutas de streaming
 import streamRoutes, { injectWebSocketConnections } from './routers/streamRoutes.js';
@@ -37,16 +37,16 @@ app.use(databaseMiddleware);
 // Rutas principales
 app.use('/api', routes);
 
-// Rutas de streaming - inyectar conexiones WebSocket
+// Rutas de streaming - inyectar conexiones WebSocket (CORRECCIÓN: usamos cameraClients)
 app.use('/api/stream', 
-  injectWebSocketConnections(mobileClients, cameraStreams, verifyCameraToken), 
+  injectWebSocketConnections(mobileClients, cameraClients, verifyCameraToken), 
   streamRoutes
 );
 
 // Endpoint de estado global del servidor
 app.get('/status', async (req, res) => {
     const cameraStatus = {};
-    cameraStreams.forEach((stream, cameraId) => {
+    cameraClients.forEach((stream, cameraId) => {
         cameraStatus[cameraId] = {
             connected: stream.ws.readyState === stream.ws.OPEN,
             token: stream.token ? stream.token.substring(0, 10) + '...' : 'no-token'
@@ -78,7 +78,7 @@ app.get('/status', async (req, res) => {
     res.json({
         status: 'running',
         server: 'Express + WebSocket unificado',
-        connectedCameras: cameraStreams.size,
+        connectedCameras: cameraClients.size,
         connectedMobileClients: mobileClients.size,
         cameras: cameraStatus,
         mobileClients: mobileStatus,
@@ -122,7 +122,7 @@ app.use(errorHandlerMiddleware);
 // Función para inicializar el servidor
 const startServer = async () => {
   try {
-    const PORT = process.env.PORT ;
+    const PORT = process.env.PORT || 3000;
     server.listen(PORT, '0.0.0.0', () => {
       console.log('\n' + '='.repeat(60));
       console.log(`🚀 Servidor ejecutándose en puerto ${PORT}`);
@@ -131,6 +131,7 @@ const startServer = async () => {
       console.log(`🌐 URL base: ${process.env.URL_BASE || `http://localhost:${PORT}`}`);
       console.log(`📱 WebSocket móvil: ws://localhost:${PORT}/mobile`);
       console.log(`🎥 WebSocket stream: ws://localhost:${PORT}/stream`);
+      console.log(`🔗 WebSocket WebRTC: ws://localhost:${PORT}/webrtc`);
       console.log(`📊 Endpoints de streaming:`);
       console.log(`   📍 Status: http://localhost:${PORT}/status`);
       console.log(`   📍 API Status: http://localhost:${PORT}/api/stream/status`);

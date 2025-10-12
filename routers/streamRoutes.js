@@ -3,12 +3,12 @@ import db from '../config/database.js';
 
 const router = express.Router();
 
-// Middleware para inyectar las conexiones WebSocket
-export function injectWebSocketConnections(mobileClients, cameraStreams, verifyCameraToken) {
+// Middleware para inyectar las conexiones WebSocket (CORRECCIÓN: cameraClients)
+export function injectWebSocketConnections(mobileClients, cameraClients, verifyCameraToken) {
     return (req, res, next) => {
         req.webSocketData = {
             mobileClients,
-            cameraStreams,
+            cameraClients, // CORRECCIÓN: cambiamos cameraStreams por cameraClients
             verifyCameraToken
         };
         next();
@@ -20,9 +20,11 @@ router.get('/info', (req, res) => {
     const host = req.headers.host;
     res.json({
         streaming: true,
+        protocol: 'webrtc',
         endpoints: {
             websocket_mobile: `ws://${host.replace('http', 'ws')}/mobile`,
             websocket_stream: `ws://${host.replace('http', 'ws')}/stream`,
+            websocket_webrtc: `ws://${host.replace('http', 'ws')}/webrtc`,
             status: `${req.protocol}://${host}/api/stream/status`,
             verify_token: `${req.protocol}://${host}/api/stream/verify-camera-token`
         }
@@ -31,12 +33,13 @@ router.get('/info', (req, res) => {
 
 // Endpoint de estado WebSocket
 router.get('/status', async (req, res) => {
-    const { mobileClients, cameraStreams } = req.webSocketData;
+    const { mobileClients, cameraClients } = req.webSocketData;
     
     const cameraStatus = {};
-    cameraStreams.forEach((stream, cameraId) => {
+    cameraClients.forEach((stream, cameraId) => {
         cameraStatus[cameraId] = {
             connected: stream.ws.readyState === stream.ws.OPEN,
+            clients: stream.peerConnections ? stream.peerConnections.size : 0,
             token: stream.token ? stream.token.substring(0, 10) + '...' : 'no-token'
         };
     });
@@ -47,6 +50,7 @@ router.get('/status', async (req, res) => {
             userId: clientInfo.userInfo.id,
             userName: clientInfo.userInfo.nombre,
             cameraId: clientInfo.cameraId,
+            clientId: clientInfo.clientId,
             connectedAt: clientInfo.connectedAt,
             connectionActive: ws.readyState === ws.OPEN
         });
@@ -65,8 +69,12 @@ router.get('/status', async (req, res) => {
     
     res.json({
         status: 'running',
-        connectedCameras: cameraStreams.size,
+        protocol: 'webrtc',
+        connectedCameras: cameraClients.size,
         connectedMobileClients: mobileClients.size,
+        activePeerConnections: Array.from(cameraClients.values()).reduce((acc, cam) => 
+            acc + (cam.peerConnections ? cam.peerConnections.size : 0), 0
+        ),
         cameras: cameraStatus,
         mobileClients: mobileStatus,
         databaseCameras: dbCameras,
@@ -127,7 +135,8 @@ router.get('/cameras', async (req, res) => {
             url: camara.url,
             fecha_instalacion: camara.fecha_instalacion,
             fecha_ultimo_mantenimiento: camara.fecha_ultimo_mantenimiento,
-            created_at: camara.created_at
+            created_at: camara.created_at,
+            online: cameraClients.has(camara.camara_id)
         }));
         
         res.json({
@@ -147,7 +156,7 @@ router.get('/cameras', async (req, res) => {
 
 // Endpoint para obtener estadísticas del streaming
 router.get('/stats', async (req, res) => {
-    const { mobileClients, cameraStreams } = req.webSocketData;
+    const { mobileClients, cameraClients } = req.webSocketData;
     
     try {
         // Estadísticas de cámaras en BD
@@ -161,10 +170,16 @@ router.get('/stats', async (req, res) => {
         
         const camarasStats = camarasResult.rows[0];
         
+        const activePeerConnections = Array.from(cameraClients.values()).reduce((acc, cam) => 
+            acc + (cam.peerConnections ? cam.peerConnections.size : 0), 0
+        );
+        
         res.json({
             streaming: {
-                connected_cameras: cameraStreams.size,
+                protocol: 'webrtc',
+                connected_cameras: cameraClients.size,
                 connected_clients: mobileClients.size,
+                active_peer_connections: activePeerConnections,
                 uptime: process.uptime()
             },
             database: {
