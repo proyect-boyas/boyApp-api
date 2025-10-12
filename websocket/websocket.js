@@ -365,6 +365,13 @@ async function handleCameraMessage(cameraId, message, ws) {
         }
       }
       break;
+      case 'video_frame':
+      // La cámara envía frames de video (formato MPEG-TS o similar)
+      console.log(`🎥 Cámara ${cameraId} envió frame de video (size: ${message.size || 'N/A'} bytes)`);
+      
+      // Reenviar el frame a todos los clientes móviles conectados a esta cámara
+      forwardVideoFrameToClients(cameraId, message);
+      break;
       
     default:
       console.log(`Mensaje no reconocido de cámara ${cameraId}:`, message.type);
@@ -452,6 +459,32 @@ async function handleMobileMessage(ws, message) {
       
     default:
       console.log(`Mensaje no reconocido de usuario ${clientInfo.userInfo.nombre}:`, message.type);
+  }
+}
+
+function forwardVideoFrameToClients(cameraId, message) {
+  let clientsForwarded = 0;
+  
+  mobileClients.forEach((clientInfo, clientWs) => {
+    if (clientInfo.cameraId === cameraId && clientWs.readyState === clientWs.OPEN) {
+      try {
+        clientWs.send(JSON.stringify({
+          type: 'video_frame',
+          data: message.data, // Datos del frame (base64 o buffer)
+          size: message.size,
+          timestamp: message.timestamp || Date.now(),
+          cameraId: cameraId
+        }));
+        clientsForwarded++;
+      } catch (error) {
+        console.error(`Error enviando video frame a usuario ${clientInfo.userInfo.nombre}:`, error);
+      }
+    }
+  });
+  
+  // Log cada 100 frames para no saturar la consola
+  if (Math.random() < 0.01) { // 1% de probabilidad
+    console.log(`📊 Frame de ${cameraId} reenviado a ${clientsForwarded} clientes`);
   }
 }
 
