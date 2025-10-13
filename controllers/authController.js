@@ -3,6 +3,28 @@ import jwt from 'jsonwebtoken';
 import db from '../config/database.js';
 import { validationResult } from 'express-validator';
 
+// Función auxiliar para verificar membresía activa
+const checkActiveMembership = async (userId) => {
+  try {
+    const membershipResult = await db.query(
+      `SELECT um.estado, um.fecha_fin, m.tipo 
+       FROM usuario_membresias um 
+       JOIN membresias m ON um.membresia_id = m.id 
+       WHERE um.usuario_id = $1 
+       AND um.estado = 'activa' 
+       AND um.fecha_fin >= CURRENT_DATE
+       ORDER BY um.fecha_fin DESC 
+       LIMIT 1`,
+      [userId]
+    );
+
+    return membershipResult.rows.length > 0 ? membershipResult.rows[0] : null;
+  } catch (error) {
+    console.error('Error verificando membresía:', error);
+    return null;
+  }
+};
+
 // Registrar nuevo usuario
 const register = async (req, res) => {
   try {
@@ -76,6 +98,23 @@ const login = async (req, res) => {
       return res.status(400).json({ error: 'Credenciales inválidas' });
     }
 
+    // Validar membresía para usuarios tipo 'user'
+    if (user.role === 'user') {
+      const activeMembership = await checkActiveMembership(user.id);
+      
+      if (!activeMembership) {
+        return res.status(403).json({ 
+          error: 'No tienes una membresía activa. Por favor, adquiere una membresía para acceder al sistema.' 
+        });
+      }
+
+      // Verificar si la membresía está próxima a expirar (menos de 7 días)
+      const daysUntilExpiry = Math.ceil((new Date(activeMembership.fecha_fin) - new Date()) / (1000 * 60 * 60 * 24));
+      if (daysUntilExpiry <= 7) {
+        console.log(`Membresía del usuario ${user.id} expira en ${daysUntilExpiry} días`);
+      }
+    }
+
     // Generar token JWT
     const token = jwt.sign(
       { 
@@ -102,10 +141,18 @@ const login = async (req, res) => {
   }
 };
 
-// Obtener perfil de usuario
+// Obtener perfil de usuario con información de membresía
 const getProfile = async (req, res) => {
   try {
-    res.json({ user: req.user });
+    let userWithMembership = { ...req.user };
+    
+    // Si es usuario regular, obtener información de membresía
+    if (req.user.role === 'user') {
+      const activeMembership = await checkActiveMembership(req.user.id);
+      userWithMembership.membresia = activeMembership;
+    }
+
+    res.json({ user: userWithMembership });
   } catch (error) {
     console.error('Error obteniendo perfil:', error);
     res.status(500).json({ error: 'Error del servidor' });
@@ -142,7 +189,13 @@ const getAllUsers = async (req, res) => {
     }
 
     const result = await db.query(
-      'SELECT id, nombre, email, role, created_at, updated_at FROM users ORDER BY created_at DESC'
+      `SELECT u.id, u.nombre, u.email, u.role, u.created_at, u.updated_at,
+              um.estado as membresia_estado, um.fecha_fin as membresia_fin,
+              m.tipo as membresia_tipo
+       FROM users u
+       LEFT JOIN usuario_membresias um ON u.id = um.usuario_id AND um.estado = 'activa' AND um.fecha_fin >= CURRENT_DATE
+       LEFT JOIN membresias m ON um.membresia_id = m.id
+       ORDER BY u.created_at DESC`
     );
 
     res.json({ users: result.rows });
@@ -163,7 +216,14 @@ const getUserById = async (req, res) => {
     const { id } = req.params;
 
     const result = await db.query(
-      'SELECT id, nombre, email, role, created_at, updated_at FROM users WHERE id = $1',
+      `SELECT u.id, u.nombre, u.email, u.role, u.created_at, u.updated_at,
+              um.estado as membresia_estado, um.fecha_inicio as membresia_inicio, 
+              um.fecha_fin as membresia_fin, um.monto_pagado, um.metodo_pago,
+              m.tipo as membresia_tipo, m.descripcion as membresia_descripcion
+       FROM users u
+       LEFT JOIN usuario_membresias um ON u.id = um.usuario_id AND um.estado = 'activa' AND um.fecha_fin >= CURRENT_DATE
+       LEFT JOIN membresias m ON um.membresia_id = m.id
+       WHERE u.id = $1`,
       [id]
     );
 
@@ -247,10 +307,8 @@ const deleteUser = async (req, res) => {
 };
 
 // Crear usuario sin estar logueado (solo para desarrollo o endpoints públicos controlados)
- 
 const createUserByAdmin = async (req, res) => {
   try {
-   
     // Validar entrada
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -304,6 +362,7 @@ const createUserByAdmin = async (req, res) => {
     res.status(500).json({ error: 'Error del servidor' });
   }
 };
+
 const logout = (req, res) => {
   try {
     // En una implementación con JWT, el logout se maneja principalmente del lado del cliente
