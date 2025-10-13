@@ -94,7 +94,6 @@ const login = async (req, res) => {
 // Registrar nuevo usuario
 const register = async (req, res) => {
   try {
-    // Validar entrada
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
@@ -124,6 +123,31 @@ const register = async (req, res) => {
       [nombre, email, hashedPassword, role]
     );
 
+
+
+const newUser =result.rows[0];
+
+    // Asignar membresía gratuita SOLO si el usuario es de tipo 'user'
+    if (role === 'user') {
+      // Insertar en la tabla usuario_membresias
+      await db.query(
+        `INSERT INTO "usuario_membresias" 
+        ("usuario_id", "membresia_id", "fecha_inicio", "fecha_fin", "monto_pagado", "estado", "metodo_pago", "referencia_pago") 
+        VALUES ($1, $2, CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days', $3, $4, $5, $6)`,
+        [
+          newUser.id, // ID del usuario creado
+          1, // ID de membresía gratis
+          0.00, // Monto pagado
+          'activa', // Estado
+          'gratis', // Método de pago
+          'TRIAL-' + Date.now() // Referencia única con timestamp
+        ]
+      );
+    }
+
+    await  db.query('COMMIT');
+
+
     // Generar token JWT
     const token = jwt.sign(
       { 
@@ -134,9 +158,10 @@ const register = async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    
     res.status(201).json({
-      message: 'Usuario registrado exitosamente',
-      user: result.rows[0],
+      message: 'Usuario registrado exitosamente' + (role === 'user' ? ' con membresía gratuita de 30 días' : ''),
+      user: newUser,
       token
     });
   } catch (error) {
