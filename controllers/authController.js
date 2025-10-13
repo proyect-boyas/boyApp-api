@@ -25,6 +25,72 @@ const checkActiveMembership = async (userId) => {
   }
 };
 
+
+// Login de usuario
+const login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Verificar si el usuario existe
+    const result = await db.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (result.rows.length === 0) {
+      return res.status(400).json({ error: 'Credenciales inválidas' });
+    }
+
+    const user = result.rows[0];
+
+    // Verificar contraseña
+    const validPassword = await bcrypt.compare(password, user.password);
+    if (!validPassword) {
+      return res.status(400).json({ error: 'Credenciales inválidas' });
+    }
+
+    // Validar membresía para usuarios tipo 'user'
+    if (user.role === 'user') {
+      const activeMembership = await checkActiveMembership(user.id);
+      
+      if (!activeMembership) {
+        return res.status(403).json({ 
+          error: 'No tienes una membresía activa. Por favor, adquiere una membresía para acceder al sistema.' 
+        });
+      }
+ 
+      // Verificar si la membresía está próxima a expirar (menos de 7 días)
+      const daysUntilExpiry = Math.ceil((new Date(activeMembership.fecha_fin) - new Date()) / (1000 * 60 * 60 * 24));
+      if (daysUntilExpiry <= 7) {
+        console.log(`Membresía del usuario ${user.nombre} expira en ${daysUntilExpiry} días`);
+      }
+
+      user.membresia_activa = activeMembership;
+    }
+
+    // Generar token JWT
+    const token = jwt.sign(
+      { 
+        userId: user.id,
+        role: user.role 
+      },
+      process.env.JWT_SECRET || 'secreto_tempest',
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      message: 'Login exitoso',
+      user: {
+        id: user.id,
+        nombre: user.nombre,
+        email: user.email,
+        role: user.role
+      },
+      token
+    });
+  } catch (error) {
+    console.error('Error en login:', error);
+    res.status(500).json({ error: 'Error del servidor' });
+  }
+};
+
+
 // Registrar nuevo usuario
 const register = async (req, res) => {
   try {
@@ -79,67 +145,6 @@ const register = async (req, res) => {
   }
 };
 
-// Login de usuario
-const login = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    // Verificar si el usuario existe
-    const result = await db.query('SELECT * FROM users WHERE email = $1', [email]);
-    if (result.rows.length === 0) {
-      return res.status(400).json({ error: 'Credenciales inválidas' });
-    }
-
-    const user = result.rows[0];
-
-    // Verificar contraseña
-    const validPassword = await bcrypt.compare(password, user.password);
-    if (!validPassword) {
-      return res.status(400).json({ error: 'Credenciales inválidas' });
-    }
-
-    // Validar membresía para usuarios tipo 'user'
-    if (user.role === 'user') {
-      const activeMembership = await checkActiveMembership(user.id);
-      
-      if (!activeMembership) {
-        return res.status(403).json({ 
-          error: 'No tienes una membresía activa. Por favor, adquiere una membresía para acceder al sistema.' 
-        });
-      }
-
-      // Verificar si la membresía está próxima a expirar (menos de 7 días)
-      const daysUntilExpiry = Math.ceil((new Date(activeMembership.fecha_fin) - new Date()) / (1000 * 60 * 60 * 24));
-      if (daysUntilExpiry <= 7) {
-        console.log(`Membresía del usuario ${user.id} expira en ${daysUntilExpiry} días`);
-      }
-    }
-
-    // Generar token JWT
-    const token = jwt.sign(
-      { 
-        userId: user.id,
-        role: user.role 
-      },
-      process.env.JWT_SECRET || 'secreto_tempest',
-      { expiresIn: '7d' }
-    );
-
-    res.json({
-      message: 'Login exitoso',
-      user: {
-        id: user.id,
-        nombre: user.nombre,
-        email: user.email,
-        role: user.role
-      },
-      token
-    });
-  } catch (error) {
-    console.error('Error en login:', error);
-    res.status(500).json({ error: 'Error del servidor' });
-  }
-};
 
 // Obtener perfil de usuario con información de membresía
 const getProfile = async (req, res) => {
