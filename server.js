@@ -11,7 +11,7 @@ import {
   notFoundMiddleware 
 } from './middleware/server.js';
 import routes from './routers/index.js';
-
+import hlsRoutes from './routers/hls-routes.js';
 // Importar configuración WebSocket
 import { initializeWebSocket, mobileClients, cameraClients, verifyCameraToken } from './websocket/websocket.js';
 
@@ -24,6 +24,21 @@ const app = express();
 const server = createServer(app); // Un solo servidor HTTP
 
 // Inicializar WebSocket con el mismo servidor HTTP
+
+app.use(express.json());
+app.use(express.static('public'));
+
+// Rutas HLS
+app.use('/api', hlsRoutes);
+
+// Ruta de estado
+app.get('/api/status', (req, res) => {
+  res.json({ 
+    status: 'online', 
+    service: 'WebSocket HLS Stream Server',
+    timestamp: new Date().toISOString()
+  });
+});
 initializeWebSocket(server);
 
 // Middleware básico

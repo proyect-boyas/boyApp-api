@@ -1,6 +1,13 @@
 import { WebSocketServer } from 'ws';
 import jwt from 'jsonwebtoken';
 import db from "../config/database.js";
+import ffmpeg from 'fluent-ffmpeg';
+import fs from 'fs-extra';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { PassThrough } from 'stream';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // WebRTC Configuration
 const ICE_SERVERS = [
@@ -10,15 +17,136 @@ const ICE_SERVERS = [
 // Almacenar conexiones de clientes móviles
 const mobileClients = new Map(); // ws -> { userInfo, cameraId, peerConnection }
 
-// Almacenar conexiones de cámaras (CORRECCIÓN: cambiamos cameraStreams por cameraClients)
+// Almacenar conexiones de cámaras
 const cameraClients = new Map(); // cameraId -> { ws, token, peerConnections }
 
-// Almacenar ofertas/respuestas pendientes
-const pendingOffers = new Map(); // cameraId -> offer
-const pendingAnswers = new Map(); // clientId -> answer
+// Almacenar streams HLS activos
+const hlsStreams = new Map(); // cameraId -> { ffmpegProcess, streamPath, videoStream }
 
 // Configuración del JWT
 const JWT_SECRET = process.env.JWT_SECRET;
+
+// Configuración HLS
+const HLS_BASE_PATH = path.join(__dirname, 'hls-streams');
+
+// Asegurar que el directorio HLS existe
+fs.ensureDirSync(HLS_BASE_PATH);
+
+class HLSStreamManager {
+  constructor() {
+    this.activeStreams = new Map();
+  }
+
+  startHLSStream(cameraId) {
+    try {
+      // Si ya existe un stream, lo detenemos primero
+      if (this.activeStreams.has(cameraId)) {
+        this.stopHLSStream(cameraId);
+      }
+
+      const streamPath = path.join(HLS_BASE_PATH, cameraId);
+      fs.ensureDirSync(streamPath);
+
+      // Crear un stream de passthrough para los datos de video
+      const videoStream = new PassThrough();
+
+      console.log(`🎬 Iniciando conversión HLS para cámara ${cameraId}`);
+
+      const ffmpegProcess = ffmpeg(videoStream)
+        .inputOptions([
+          '-fflags nobuffer',
+          '-flags low_delay',
+          '-probesize 32',
+          '-analyzeduration 0'
+        ])
+        .outputOptions([
+          '-c copy', // Copiar sin re-encodificar
+          '-f hls',
+          '-hls_time 2', // Segmentos de 2 segundos
+          '-hls_list_size 5', // Mantener 5 segmentos en la playlist
+          '-hls_segment_filename', path.join(streamPath, 'segment%03d.ts'),
+          '-hls_flags delete_segments',
+          '-hls_playlist_type event'
+        ])
+        .output(path.join(streamPath, 'playlist.m3u8'))
+        .on('start', (commandLine) => {
+          console.log(`🟢 FFmpeg iniciado para ${cameraId}: ${commandLine}`);
+        })
+        .on('error', (err) => {
+          console.error(`❌ Error FFmpeg para ${cameraId}:`, err);
+          this.stopHLSStream(cameraId);
+        })
+        .on('end', () => {
+          console.log(`🔴 FFmpeg finalizado para ${cameraId}`);
+          this.stopHLSStream(cameraId);
+        });
+
+      ffmpegProcess.run();
+
+      const streamInfo = {
+        cameraId,
+        streamPath,
+        videoStream,
+        ffmpegProcess,
+        startTime: Date.now(),
+        playlistUrl: `/hls/${cameraId}/playlist.m3u8`
+      };
+
+      this.activeStreams.set(cameraId, streamInfo);
+      return streamInfo;
+
+    } catch (error) {
+      console.error(`❌ Error iniciando stream HLS para ${cameraId}:`, error);
+      return null;
+    }
+  }
+
+  getStreamInfo(cameraId) {
+    return this.activeStreams.get(cameraId);
+  }
+
+  writeVideoData(cameraId, videoData) {
+    const streamInfo = this.activeStreams.get(cameraId);
+    if (streamInfo && streamInfo.videoStream && !streamInfo.videoStream.destroyed) {
+      try {
+        streamInfo.videoStream.write(videoData);
+      } catch (error) {
+        console.error(`❌ Error escribiendo datos de video para ${cameraId}:`, error);
+      }
+    }
+  }
+
+  stopHLSStream(cameraId) {
+    const streamInfo = this.activeStreams.get(cameraId);
+    if (streamInfo) {
+      if (streamInfo.videoStream && !streamInfo.videoStream.destroyed) {
+        streamInfo.videoStream.end();
+      }
+      if (streamInfo.ffmpegProcess) {
+        streamInfo.ffmpegProcess.kill('SIGTERM');
+      }
+      this.activeStreams.delete(cameraId);
+      console.log(`🛑 Stream HLS detenido para ${cameraId}`);
+    }
+  }
+
+  getActiveStreams() {
+    return Array.from(this.activeStreams.values());
+  }
+
+  cleanupOldStreams() {
+    const now = Date.now();
+    const maxAge = 30 * 60 * 1000; // 30 minutos
+
+    this.activeStreams.forEach((streamInfo, cameraId) => {
+      if (now - streamInfo.startTime > maxAge) {
+        this.stopHLSStream(cameraId);
+      }
+    });
+  }
+}
+
+const hlsManager = new HLSStreamManager();
 
 // Función para verificar token de cámara
 const verifyCameraToken = async (cameraId, token) => {
@@ -141,7 +269,7 @@ export const initializeWebSocket = (server) => {
     });
   });
 
-  console.log('✅ WebSocket Server con WebRTC inicializado');
+  console.log('✅ WebSocket Server con WebRTC y HLS inicializado');
   return wss;
 };
 
@@ -167,6 +295,9 @@ async function handleCameraConnection(ws, queryParams) {
     token,
     peerConnections: new Map() // clientId -> peerConnection info
   });
+
+  // Iniciar stream HLS para esta cámara
+  hlsManager.startHLSStream(cameraId);
   
   // Notificar a clientes móviles que la cámara está en línea
   notifyCameraStatus(cameraId, 'online');
@@ -192,12 +323,20 @@ async function handleCameraConnection(ws, queryParams) {
       });
     }
     cameraClients.delete(cameraId);
+    
+    // Detener stream HLS
+    hlsManager.stopHLSStream(cameraId);
+    
     notifyCameraStatus(cameraId, 'offline');
   });
   
   ws.on('error', (error) => {
     console.error(`❌ Error en cámara ${cameraId}:`, error);
     cameraClients.delete(cameraId);
+    
+    // Detener stream HLS
+    hlsManager.stopHLSStream(cameraId);
+    
     notifyCameraStatus(cameraId, 'offline');
   });
 }
@@ -248,7 +387,8 @@ async function handleMobileConnection(ws, queryParams) {
     },
     iceServers: ICE_SERVERS,
     timestamp: Date.now(),
-    cameraStatus: cameraClients.has(cameraId) ? 'online' : 'offline'
+    cameraStatus: cameraClients.has(cameraId) ? 'online' : 'offline',
+    hlsUrl: hlsManager.getStreamInfo(cameraId) ? `/api/hls/${cameraId}/playlist.m3u8` : null
   }));
   
   ws.on('close', () => {
@@ -365,9 +505,24 @@ async function handleCameraMessage(cameraId, message, ws) {
         }
       }
       break;
-      case 'video_frame':
+      
+    case 'video_frame':
       // La cámara envía frames de video (formato MPEG-TS o similar)
       console.log(`🎥 Cámara ${cameraId} envió frame de video (size: ${message.size || 'N/A'} bytes)`);
+      
+      // Procesar frame para HLS
+      if (message.data) {
+        try {
+          // Convertir base64 a buffer
+          const videoData = Buffer.from(message.data, 'base64');
+          
+          // Escribir en el stream HLS
+          hlsManager.writeVideoData(cameraId, videoData);
+          
+        } catch (error) {
+          console.error(`❌ Error procesando frame HLS para ${cameraId}:`, error);
+        }
+      }
       
       // Reenviar el frame a todos los clientes móviles conectados a esta cámara
       forwardVideoFrameToClients(cameraId, message);
@@ -395,6 +550,23 @@ async function handleMobileMessage(ws, message) {
     case 'request_stream':
       // Cliente solicita iniciar stream WebRTC
       await handleStreamRequest(clientInfo.cameraId, clientInfo.clientId, ws);
+      break;
+      
+    case 'request_hls':
+      // Cliente solicita URL HLS
+      const hlsStreamInfo = hlsManager.getStreamInfo(clientInfo.cameraId);
+      if (hlsStreamInfo) {
+        ws.send(JSON.stringify({
+          type: 'hls_url',
+          url: `/api/hls/${clientInfo.cameraId}/playlist.m3u8`,
+          cameraId: clientInfo.cameraId
+        }));
+      } else {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Stream HLS no disponible'
+        }));
+      }
       break;
       
     case 'webrtc_answer':
@@ -437,7 +609,8 @@ async function handleMobileMessage(ws, message) {
           type: 'camera_changed',
           cameraId: newCameraId,
           timestamp: Date.now(),
-          cameraStatus: cameraClients.has(newCameraId) ? 'online' : 'offline'
+          cameraStatus: cameraClients.has(newCameraId) ? 'online' : 'offline',
+          hlsUrl: hlsManager.getStreamInfo(newCameraId) ? `/api/hls/${newCameraId}/playlist.m3u8` : null
         }));
       } else {
         ws.send(JSON.stringify({
@@ -667,7 +840,8 @@ async function getAvailableCameras() {
       fabricante: camara.fabricante,
       estado: camara.estado,
       url: camara.url,
-      online: cameraClients.has(camara.camara_id)
+      online: cameraClients.has(camara.camara_id),
+      hlsAvailable: hlsManager.getStreamInfo(camara.camara_id) !== null
     }));
   } catch (error) {
     console.error('Error obteniendo cámaras:', error);
@@ -675,10 +849,11 @@ async function getAvailableCameras() {
   }
 }
 
-// Exportar funciones y variables (CORRECCIÓN: Exportamos cameraClients en lugar de cameraStreams)
+// Exportar funciones y variables
 export { 
   mobileClients, 
   cameraClients, 
+  hlsManager,
   verifyCameraToken, 
   verifyUserToken,
   notifyCameraStatus
