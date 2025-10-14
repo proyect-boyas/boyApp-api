@@ -56,86 +56,7 @@ const getMembresiaById = async (req, res) => {
   }
 };
 
-// Asignar una membresía a un usuario
-const asignarMembresiaUsuario = async (req, res) => {
-  const client = await db.connect();
-  
-  try {
-    await client.query('BEGIN');
-    
-    const { usuario_id, membresia_id, metodo_pago, referencia_pago } = req.body;
 
-    // Verificar si el usuario existe
-    const usuarioResult = await client.query(
-      'SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL',
-      [usuario_id]
-    );
-    
-    if (usuarioResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({
-        success: false,
-        message: 'El usuario no existe'
-      });
-    }
-
-    // Verificar si la membresía existe
-    const membresiaResult = await client.query(
-      'SELECT * FROM membresias WHERE id = $1 AND deleted_at IS NULL',
-      [membresia_id]
-    );
-    
-    if (membresiaResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({
-        success: false,
-        message: 'La membresía no existe'
-      });
-    }
-
-    const membresia = membresiaResult.rows[0];
-
-    // Calcular fechas
-    const fechaInicio = new Date();
-    const fechaFin = new Date();
-    fechaFin.setDate(fechaFin.getDate() + membresia.duracion_dias);
-
-    // Insertar la asignación de membresía
-    const insertResult = await client.query(`
-      INSERT INTO usuario_membresias 
-      (usuario_id, membresia_id, fecha_inicio, fecha_fin, monto_pagado, estado, metodo_pago, referencia_pago) 
-      VALUES ($1, $2, $3, $4, $5, 'activa', $6, $7)
-      RETURNING *
-    `, [
-      usuario_id,
-      membresia_id,
-      fechaInicio,
-      fechaFin,
-      membresia.precio,
-      metodo_pago,
-      referencia_pago
-    ]);
-
-    await client.query('COMMIT');
-
-    res.status(201).json({
-      success: true,
-      message: 'Membresía asignada correctamente',
-      data: insertResult.rows[0]
-    });
-
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error al asignar membresía:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al asignar membresía',
-      error: error.message
-    });
-  } finally {
-    client.release();
-  }
-};
 
 // Obtener las membresías de un usuario
 const getMembresiasUsuario = async (req, res) => {
@@ -216,78 +137,7 @@ const getMembresiaActivaUsuario = async (req, res) => {
   }
 };
 
-// Renovar membresía de usuario
-const renovarMembresia = async (req, res) => {
-  const client = await db.connect();
-  
-  try {
-    await client.query('BEGIN');
-    
-    const { id } = req.params;
-    const { metodo_pago, referencia_pago } = req.body;
 
-    // Obtener la membresía actual
-    const membresiaActualResult = await client.query(`
-      SELECT um.*, m.duracion_dias, m.precio 
-      FROM usuario_membresias um
-      JOIN membresias m ON m.id = um.membresia_id
-      WHERE um.id = $1 AND um.deleted_at IS NULL
-    `, [id]);
-    
-    if (membresiaActualResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({
-        success: false,
-        message: 'Registro de membresía no encontrado'
-      });
-    }
-
-    const membresiaActual = membresiaActualResult.rows[0];
-
-    // Calcular nueva fecha fin (desde la fecha actual)
-    const nuevaFechaFin = new Date();
-    nuevaFechaFin.setDate(nuevaFechaFin.getDate() + membresiaActual.duracion_dias);
-
-    // Actualizar el registro existente
-    const updateResult = await client.query(`
-      UPDATE usuario_membresias 
-      SET fecha_inicio = CURRENT_DATE,
-          fecha_fin = $1,
-          monto_pagado = $2,
-          estado = 'activa',
-          metodo_pago = $3,
-          referencia_pago = $4,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = $5
-      RETURNING *
-    `, [
-      nuevaFechaFin,
-      membresiaActual.precio,
-      metodo_pago,
-      referencia_pago,
-      id
-    ]);
-
-    await client.query('COMMIT');
-
-    res.json({
-      success: true,
-      message: 'Membresía renovada correctamente',
-      data: updateResult.rows[0]
-    });
-
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error al renovar membresía:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al renovar membresía',
-      error: error.message
-    });
-  } finally {
-    client.release();
-  }
-};
 
 // Cancelar membresía de usuario
 const cancelarMembresia = async (req, res) => {
@@ -455,6 +305,161 @@ const actualizarEstadosExpirados = async (req, res) => {
     });
   }
 };
+
+// Asignar una membresía a un usuario - CORREGIDO
+const asignarMembresiaUsuario = async (req, res) => {
+  const client = await db.connect(); // Esto debería funcionar si db es un Pool
+  
+  try {
+    await client.query('BEGIN');
+    
+    const { usuario_id, membresia_id, metodo_pago, referencia_pago } = req.body;
+
+    // Verificar si el usuario existe
+    const usuarioResult = await client.query(
+      'SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL',
+      [usuario_id]
+    );
+    
+    if (usuarioResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        success: false,
+        message: 'El usuario no existe'
+      });
+    }
+
+    // Verificar si la membresía existe
+    const membresiaResult = await client.query(
+      'SELECT * FROM membresias WHERE id = $1 AND deleted_at IS NULL',
+      [membresia_id]
+    );
+    
+    if (membresiaResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        success: false,
+        message: 'La membresía no existe'
+      });
+    }
+
+    const membresia = membresiaResult.rows[0];
+
+    // Calcular fechas
+    const fechaInicio = new Date();
+    const fechaFin = new Date();
+    fechaFin.setDate(fechaFin.getDate() + membresia.duracion_dias);
+
+    // Insertar la asignación de membresía
+    const insertResult = await client.query(`
+      INSERT INTO usuario_membresias 
+      (usuario_id, membresia_id, fecha_inicio, fecha_fin, monto_pagado, estado, metodo_pago, referencia_pago) 
+      VALUES ($1, $2, $3, $4, $5, 'activa', $6, $7)
+      RETURNING *
+    `, [
+      usuario_id,
+      membresia_id,
+      fechaInicio,
+      fechaFin,
+      membresia.precio,
+      metodo_pago,
+      referencia_pago
+    ]);
+
+    await client.query('COMMIT');
+
+    res.status(201).json({
+      success: true,
+      message: 'Membresía asignada correctamente',
+      data: insertResult.rows[0]
+    });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error al asignar membresía:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al asignar membresía',
+      error: error.message
+    });
+  } finally {
+    client.release();
+  }
+};
+
+// Renovar membresía de usuario - CORREGIDO
+const renovarMembresia = async (req, res) => {
+  const client = await db.connect();
+  
+  try {
+    await client.query('BEGIN');
+    
+    const { id } = req.params;
+    const { metodo_pago, referencia_pago } = req.body;
+
+    // Obtener la membresía actual
+    const membresiaActualResult = await client.query(`
+      SELECT um.*, m.duracion_dias, m.precio 
+      FROM usuario_membresias um
+      JOIN membresias m ON m.id = um.membresia_id
+      WHERE um.id = $1 AND um.deleted_at IS NULL
+    `, [id]);
+    
+    if (membresiaActualResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        success: false,
+        message: 'Registro de membresía no encontrado'
+      });
+    }
+
+    const membresiaActual = membresiaActualResult.rows[0];
+
+    // Calcular nueva fecha fin (desde la fecha actual)
+    const nuevaFechaFin = new Date();
+    nuevaFechaFin.setDate(nuevaFechaFin.getDate() + membresiaActual.duracion_dias);
+
+    // Actualizar el registro existente
+    const updateResult = await client.query(`
+      UPDATE usuario_membresias 
+      SET fecha_inicio = CURRENT_DATE,
+          fecha_fin = $1,
+          monto_pagado = $2,
+          estado = 'activa',
+          metodo_pago = $3,
+          referencia_pago = $4,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $5
+      RETURNING *
+    `, [
+      nuevaFechaFin,
+      membresiaActual.precio,
+      metodo_pago,
+      referencia_pago,
+      id
+    ]);
+
+    await client.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: 'Membresía renovada correctamente',
+      data: updateResult.rows[0]
+    });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error al renovar membresía:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al renovar membresía',
+      error: error.message
+    });
+  } finally {
+    client.release();
+  }
+};
+
 
 export {
   getMembresias,

@@ -28,7 +28,7 @@ const getStationData = async (req, res) => {
       // Actualizar la ubicación de la boya en la base de datos
       if (stationData.stations && stationData.stations.length > 0) {
         const station = stationData.stations[0];
-        const { latitude, longitude, public_name } = station;
+        const { latitude, longitude } = station;
         
         // Actualizar la ubicación en la base de datos
         await updateBoyaLocation(station_id, latitude, longitude);
