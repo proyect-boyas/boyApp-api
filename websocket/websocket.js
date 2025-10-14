@@ -20,12 +20,6 @@ const pendingAnswers = new Map(); // clientId -> answer
 // Configuración del JWT
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// Función de logging mejorada
-function logMessage(direction, type, source, details = {}) {
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] ${direction} ${type} from ${source}`, details);
-}
-
 // Función para verificar token de cámara
 const verifyCameraToken = async (cameraId, token) => {
   try {
@@ -242,7 +236,7 @@ async function handleMobileConnection(ws, queryParams) {
     connectedAt: new Date()
   });
   
-  // Enviar confirmación de conexión con protocolo soportado
+  // Enviar confirmación de conexión
   ws.send(JSON.stringify({
     type: 'connection_established',
     cameraId: cameraId,
@@ -254,12 +248,7 @@ async function handleMobileConnection(ws, queryParams) {
     },
     iceServers: ICE_SERVERS,
     timestamp: Date.now(),
-    cameraStatus: cameraClients.has(cameraId) ? 'online' : 'offline',
-    supported_messages: [
-      'ping', 'pong', 'request_stream', 'start_direct_stream', 
-      'stop_direct_stream', 'webrtc_offer', 'webrtc_answer',
-      'webrtc_candidate', 'change_camera', 'list_cameras'
-    ]
+    cameraStatus: cameraClients.has(cameraId) ? 'online' : 'offline'
   }));
   
   ws.on('close', () => {
@@ -347,8 +336,6 @@ async function handleWebRTCConnection(ws, queryParams) {
 
 // Manejar mensajes de cámara
 async function handleCameraMessage(cameraId, message, ws) {
-  logMessage('RECV', message.type, `camera:${cameraId}`);
-  
   switch (message.type) {
     case 'webrtc_offer':
       // La cámara envía una oferta WebRTC
@@ -378,8 +365,7 @@ async function handleCameraMessage(cameraId, message, ws) {
         }
       }
       break;
-      
-    case 'video_frame':
+      case 'video_frame':
       // La cámara envía frames de video (formato MPEG-TS o similar)
       console.log(`🎥 Cámara ${cameraId} envió frame de video (size: ${message.size || 'N/A'} bytes)`);
       
@@ -387,37 +373,8 @@ async function handleCameraMessage(cameraId, message, ws) {
       forwardVideoFrameToClients(cameraId, message);
       break;
       
-    // ✅ NUEVOS MANEJADORES AGREGADOS
-    case 'camera_heartbeat':
-      console.log(`❤️ Heartbeat recibido de cámara ${cameraId}`);
-      // Responder al heartbeat para confirmar conexión
-      ws.send(JSON.stringify({
-        type: 'heartbeat_ack',
-        timestamp: Date.now(),
-        cameraId: cameraId
-      }));
-      break;
-      
-    case 'stream_started':
-      console.log(`📹 Cámara ${cameraId} inició streaming`);
-      notifyCameraStatus(cameraId, 'streaming');
-      break;
-      
-    case 'stream_stopped':
-      console.log(`⏹️ Cámara ${cameraId} detuvo streaming`);
-      notifyCameraStatus(cameraId, 'online');
-      break;
-      
     default:
       console.log(`Mensaje no reconocido de cámara ${cameraId}:`, message.type);
-      
-      // Enviar error a la cámara
-      ws.send(JSON.stringify({
-        type: 'error',
-        code: 'UNKNOWN_MESSAGE_TYPE',
-        message: `Tipo de mensaje no soportado: ${message.type}`,
-        supported_types: ['webrtc_offer', 'webrtc_answer', 'webrtc_candidate', 'video_frame', 'camera_heartbeat', 'stream_started', 'stream_stopped']
-      }));
   }
 }
 
@@ -427,35 +384,10 @@ async function handleMobileMessage(ws, message) {
   
   if (!clientInfo) return;
   
-  logMessage('RECV', message.type, `user:${clientInfo.userInfo.nombre}`, {
-    cameraId: clientInfo.cameraId,
-    clientId: clientInfo.clientId
-  });
-  
   switch (message.type) {
     case 'ping':
       ws.send(JSON.stringify({
         type: 'pong',
-        timestamp: Date.now()
-      }));
-      break;
-      
-    // ✅ NUEVOS MANEJADORES AGREGADOS
-    case 'start_direct_stream':
-      console.log(`🎬 Usuario ${clientInfo.userInfo.nombre} solicitó stream directo`);
-      await handleStreamRequest(clientInfo.cameraId, clientInfo.clientId, ws);
-      break;
-      
-    case 'stop_direct_stream':
-      console.log(`⏹️ Usuario ${clientInfo.userInfo.nombre} detuvo stream`);
-      // Limpiar conexiones WebRTC específicas
-      const camera = cameraClients.get(clientInfo.cameraId);
-      if (camera && camera.peerConnections) {
-        camera.peerConnections.delete(clientInfo.clientId);
-      }
-      ws.send(JSON.stringify({
-        type: 'stream_stopped',
-        cameraId: clientInfo.cameraId,
         timestamp: Date.now()
       }));
       break;
@@ -527,14 +459,6 @@ async function handleMobileMessage(ws, message) {
       
     default:
       console.log(`Mensaje no reconocido de usuario ${clientInfo.userInfo.nombre}:`, message.type);
-      
-      // Enviar error al cliente
-      ws.send(JSON.stringify({
-        type: 'error',
-        code: 'UNKNOWN_MESSAGE_TYPE',
-        message: `Tipo de mensaje no soportado: ${message.type}`,
-        supported_types: ['ping', 'start_direct_stream', 'stop_direct_stream', 'request_stream', 'webrtc_answer', 'webrtc_candidate', 'change_camera', 'list_cameras']
-      }));
   }
 }
 
@@ -566,8 +490,6 @@ function forwardVideoFrameToClients(cameraId, message) {
 
 // Manejar mensajes WebRTC
 async function handleWebRTCMessage(ws, message, type, cameraId, clientId = null) {
-  logMessage('RECV', message.type, `${type}:${cameraId}`, { clientId });
-  
   switch (message.type) {
     case 'offer':
       if (type === 'mobile') {
