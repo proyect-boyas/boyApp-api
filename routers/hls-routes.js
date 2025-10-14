@@ -67,10 +67,10 @@ router.get('/hls/:cameraId/:segment', (req, res) => {
 });
 
 // API para gestionar streams HLS
-router.get('/api/hls/streams', (req, res) => {
+router.get('/hls/streams', (req, res) => {
   const activeStreams = hlsManager.getActiveStreams().map(stream => ({
     cameraId: stream.cameraId,
-    playlistUrl: `/api/hls/${stream.cameraId}/playlist.m3u8`,
+    playlistUrl: `/hls/${stream.cameraId}/playlist.m3u8`,
     startTime: stream.startTime,
     status: 'active',
     duration: Date.now() - stream.startTime
@@ -83,7 +83,7 @@ router.get('/api/hls/streams', (req, res) => {
 });
 
 // Iniciar stream HLS manualmente
-router.post('/api/hls/:cameraId/start', (req, res) => {
+router.post('/hls/:cameraId/start', (req, res) => {
   const { cameraId } = req.params;
   
   // Verificar si la cámara está conectada
@@ -108,13 +108,13 @@ router.post('/api/hls/:cameraId/start', (req, res) => {
   res.json({
     message: 'Stream HLS iniciado',
     cameraId,
-    playlistUrl: `/api/hls/${cameraId}/playlist.m3u8`,
+    playlistUrl: `/hls/${cameraId}/playlist.m3u8`,
     streamId: streamInfo.streamId
   });
 });
 
 // Detener stream HLS
-router.post('/api/hls/:cameraId/stop', (req, res) => {
+router.post('/hls/:cameraId/stop', (req, res) => {
   const { cameraId } = req.params;
   
   hlsManager.stopHLSStream(cameraId);
@@ -126,7 +126,7 @@ router.post('/api/hls/:cameraId/stop', (req, res) => {
 });
 
 // Obtener información del stream HLS
-router.get('/api/hls/:cameraId/info', (req, res) => {
+router.get('/hls/:cameraId/info', (req, res) => {
   const { cameraId } = req.params;
   const streamInfo = hlsManager.getStreamInfo(cameraId);
   
@@ -150,7 +150,7 @@ router.get('/api/hls/:cameraId/info', (req, res) => {
 
   res.json({
     cameraId,
-    playlistUrl: `/api/hls/${cameraId}/playlist.m3u8`,
+    playlistUrl: `/hls/${cameraId}/playlist.m3u8`,
     startTime: streamInfo.startTime,
     duration: Date.now() - streamInfo.startTime,
     segmentsCount: segments.length,
@@ -159,7 +159,7 @@ router.get('/api/hls/:cameraId/info', (req, res) => {
 });
 
 // Endpoint principal para obtener URL HLS
-router.get('/api/hls/:cameraId/url', (req, res) => {
+router.get('/hls/:cameraId/url', (req, res) => {
   const { cameraId } = req.params;
   const streamInfo = hlsManager.getStreamInfo(cameraId);
   
@@ -174,8 +174,8 @@ router.get('/api/hls/:cameraId/url', (req, res) => {
   
   res.json({
     cameraId,
-    playlistUrl: `${baseUrl}/api/hls/${cameraId}/playlist.m3u8`,
-    hlsUrl: `${baseUrl}/api/hls/${cameraId}/playlist.m3u8`,
+    playlistUrl: `${baseUrl}/hls/${cameraId}/playlist.m3u8`,
+    hlsUrl: `${baseUrl}/hls/${cameraId}/playlist.m3u8`,
     status: 'active',
     message: 'Usa esta URL en cualquier reproductor HLS compatible'
   });
