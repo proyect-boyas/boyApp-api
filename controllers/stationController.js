@@ -25,15 +25,6 @@ const getStationData = async (req, res) => {
       const stationData = await fetchStationData(station_id);
       await cacheStationData(stationData);
       
-      // Actualizar la ubicación de la boya en la base de datos
-      if (stationData.stations && stationData.stations.length > 0) {
-        const station = stationData.stations[0];
-        const { latitude, longitude } = station;
-        
-        // Actualizar la ubicación en la base de datos
-        await updateBoyaLocation(station_id, latitude, longitude);
-      }
-      
       res.json({ data: stationData, source: 'api' });
     } catch (apiError) {
       console.warn('Error al conectar con API Tempest:', apiError.message);
@@ -49,40 +40,6 @@ const getStationData = async (req, res) => {
   } catch (error) {
     console.error('Error obteniendo datos de estación:', error);
     res.status(500).json({ error: 'Error del servidor' });
-  }
-};
-
-// Función para actualizar la ubicación de la boya en la base de datos
-const updateBoyaLocation = async (station_id, latitud, longitud) => {
-  try {
-    // Primero verificar si la boya existe
-    const existingBoya = await pool.query(
-      'SELECT id FROM boyas WHERE station_id = $1',
-      [station_id]
-    );
-    
-    if (existingBoya.rows.length > 0) {
-      // Actualizar boya existente
-      const query = `
-        UPDATE boyas 
-        SET latitud = $1, longitud = $2, 
-            ultima_actualizacion = NOW()
-        WHERE station_id = $3
-        RETURNING *
-      `;
-      
-      const result = await pool.query(query, [
-        latitud, 
-        longitud, 
-        station_id
-      ]);
-      
-      console.log(`Ubicación actualizada para boya ${station_id}:`, result.rows[0]);
-      return result.rows[0];
-    }
-  } catch (error) {
-    console.error('Error actualizando ubicación de boya:', error);
-    throw error;
   }
 };
 
