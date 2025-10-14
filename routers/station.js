@@ -4,7 +4,8 @@ import {
   getStationObservations, 
   addStation, 
   getStationsMap, 
-  getStationDetails 
+  getStationDetails ,
+  getStationStatistics
 } from '../controllers/stationController.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { stationValidation } from '../middleware/validation.js';
@@ -20,5 +21,6 @@ router.get('/observations/:station_id', getStationObservations);
 router.post('/add', stationValidation.add, addStation);
 router.get('/map', getStationsMap);
 router.get('/details/:station_id', getStationDetails);
-
+ router.get('/statistics/:station_id',getStationStatistics);
+ 
 export default router;

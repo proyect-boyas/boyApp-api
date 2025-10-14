@@ -70,7 +70,7 @@ const login = async (req, res) => {
         userId: user.id,
         role: user.role 
       },
-      process.env.JWT_SECRET || 'secreto_tempest',
+      process.env.JWT_SECRET ,
       { expiresIn: '7d' }
     );
 
@@ -154,7 +154,7 @@ const newUser =result.rows[0];
         userId: result.rows[0].id,
         role: result.rows[0].role 
       },
-      process.env.JWT_SECRET || 'secreto_tempest',
+      process.env.JWT_SECRET ,
       { expiresIn: '7d' }
     );
 

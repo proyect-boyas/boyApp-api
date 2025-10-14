@@ -4,7 +4,8 @@ import {
   cacheStationData,
   getCachedStationData,
   isCacheValid,
-  getCurrentObservations
+  getCurrentObservations,
+  getStationStats
 } from '../utils/tempestAPI.js';
 
 // Obtener datos de una estación Tempest
@@ -145,10 +146,50 @@ const getStationDetails = async (req, res) => {
   }
 };
 
+// Obtener estadísticas de una estación Tempest
+const getStationStatistics = async (req, res) => {
+  try {
+    const { station_id } = req.params;
+    
+    // Obtener estadísticas de la API
+    const statsData = await getStationStats(station_id);
+    
+    res.json({ 
+      stats: statsData, 
+      source: 'api' 
+    });
+    
+  } catch (error) {
+    console.error('Error obteniendo estadísticas de estación:', error);
+    
+    // Manejar diferentes tipos de errores
+    if (error.message.includes('No se pudo conectar') || error.message.includes('timeout')) {
+      res.status(503).json({ 
+        error: 'Servicio temporalmente no disponible',
+        details: error.message 
+      });
+    } else if (error.message.includes('no configurada')) {
+      res.status(500).json({ 
+        error: 'Configuración del servidor incompleta' 
+      });
+    } else if (error.message.includes('No encontrada') || error.message.includes('404')) {
+      res.status(404).json({ 
+        error: 'Estación no encontrada o no accesible' 
+      });
+    } else {
+      res.status(500).json({ 
+        error: 'Error del servidor al obtener estadísticas',
+        details: error.message 
+      });
+    }
+  }
+};
+
 export { 
   getStationData, 
   getStationObservations, 
   addStation, 
   getStationsMap, 
-  getStationDetails 
+  getStationDetails,
+  getStationStatistics 
 };

@@ -121,10 +121,41 @@ const getCurrentObservations = async (station_id) => {
   }
 };
 
+
+const getStationStats = async (station_id) => {
+  try {
+    if (!TEMPEST_API_KEY) {
+      throw new Error('API key de Tempest no configurada');
+    }
+    
+    const response = await axios.get(`${TEMPEST_BASE_URL}/stats/station/${station_id}`, {
+      headers: { 'Authorization': `Bearer ${TEMPEST_API_KEY}` },
+      timeout: 10000 // Timeout de 10 segundos
+    });
+    
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching Tempest station stats:', error.message);
+    
+    // Manejar diferentes tipos de errores
+    if (error.response) {
+      // El servidor respondió con un código de estado fuera del rango 2xx
+      throw new Error(`API Error: ${error.response.status} - ${error.response.statusText}`);
+    } else if (error.request) {
+      // La solicitud fue hecha pero no se recibió respuesta
+      throw new Error('No se pudo conectar con el servicio de Tempest');
+    } else {
+      // Algo sucedió al configurar la solicitud
+      throw new Error(`Error de configuración: ${error.message}`);
+    }
+  }
+};
+
 export {
   fetchStationData,
   cacheStationData,
   getCachedStationData,
   isCacheValid,
-  getCurrentObservations
+  getCurrentObservations,
+  getStationStats
 };
