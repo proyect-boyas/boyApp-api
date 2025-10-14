@@ -9,6 +9,8 @@ const userValidation = {
       .isLength({ min: 6 })
       .withMessage('La contraseña debe tener al menos 6 caracteres')
       .notEmpty()
+      .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .withMessage('La contraseña debe contener al menos una minúscula, una mayúscula y un número')
       .withMessage('La contraseña es requerida'),
     body('confirmPassword')
       .custom((value, { req }) => {
@@ -41,11 +43,28 @@ const userValidation = {
       .isIn(['admin', 'user'])
       .withMessage('Rol debe ser admin o user')
   ],
+changePassword:[
+  body('currentPassword')
+    .notEmpty()
+    .withMessage('La contraseña actual es requerida'),
+  body('newPassword')
+    .isLength({ min: 6 })
+    .withMessage('La nueva contraseña debe tener al menos 6 caracteres')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .withMessage('La contraseña debe contener al menos una minúscula, una mayúscula y un número')
+    .optional(), // Hacer opcional si no quieres forzar complejidad
+     body('confirmPassword')
+      .custom((value, { req }) => {
+        if (value !== req.body.newPassword) {
+          throw new Error('Las contraseñas no coinciden');
+        }
+        return true;
+      })
+]
+
 };
 
-// Agrega estas validaciones a tu userValidation object
-
-
+ 
 
 // Validaciones para boyas
 const boyaValidation = [
@@ -194,7 +213,7 @@ const camaraValidation = [
     .withMessage('La URL no puede exceder 100 caracteres')
 ];
 
-
+ 
 
 export { 
   userValidation, 
@@ -203,4 +222,5 @@ export {
   sondaValidation,
   camaraValidation,
   mantenimientoValidation 
+    
 };

@@ -9,6 +9,7 @@ import {
   updateUser, 
   deleteUser, 
   createUserByAdmin ,
+  changePassword,
  logout
 } from '../controllers/authController.js';
 import { 
@@ -26,9 +27,10 @@ router.post('/login', userValidation.login, login);
 router.post('/logout', authenticateToken, logout); 
 router.get('/profile', authenticateToken, getProfile);
 router.put('/profile', authenticateToken, userValidation.updateProfile, updateProfile);
+router.put('/changePassword',authenticateToken,userValidation.changePassword,changePassword);
 
 // Rutas de administración (requieren rol admin)
-router.post('/admin/users', authenticateToken, requireAdmin,  createUserByAdmin); // Creación por admin
+router.post('/admin/users', authenticateToken, requireAdmin,  createUserByAdmin); 
 router.get('/admin/users', authenticateToken, requireAdmin, getAllUsers);
 router.get('/admin/users/:id', authenticateToken, requireAdmin, getUserById);
 router.put('/admin/users/:id', authenticateToken, requireAdmin, userValidation.updateUser, updateUser);

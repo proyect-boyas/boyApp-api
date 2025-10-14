@@ -407,6 +407,76 @@ const logout = (req, res) => {
   }
 };
 
+// Cambiar contraseña
+const changePassword = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { currentPassword, newPassword } = req.body;
+    const userId = req.user.id;
+
+    // Verificar que se proporcionen ambas contraseñas
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ 
+        error: 'La contraseña actual y la nueva contraseña son requeridas' 
+      });
+    }
+
+    // Verificar que la nueva contraseña sea diferente a la actual
+    if (currentPassword === newPassword) {
+      return res.status(400).json({ 
+        error: 'La nueva contraseña debe ser diferente a la actual' 
+      });
+    }
+
+    // Obtener usuario actual con contraseña
+    const userResult = await db.query(
+      'SELECT id, password FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    const user = userResult.rows[0];
+
+    // Verificar contraseña actual
+    const validCurrentPassword = await bcrypt.compare(currentPassword, user.password);
+    if (!validCurrentPassword) {
+      return res.status(400).json({ error: 'La contraseña actual es incorrecta' });
+    }
+
+    // Validar fortaleza de la nueva contraseña
+    if (newPassword.length < 6) {
+      return res.status(400).json({ 
+        error: 'La nueva contraseña debe tener al menos 6 caracteres' 
+      });
+    }
+
+    // Hash de la nueva contraseña
+    const salt = await bcrypt.genSalt(10);
+    const hashedNewPassword = await bcrypt.hash(newPassword, salt);
+
+    // Actualizar contraseña en la base de datos
+    await db.query(
+      'UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [hashedNewPassword, userId]
+    );
+
+    res.json({
+      message: 'Contraseña cambiada exitosamente'
+    });
+
+  } catch (error) {
+    console.error('Error cambiando contraseña:', error);
+    res.status(500).json({ error: 'Error del servidor al cambiar contraseña' });
+  }
+};
+
 export { 
   register, 
   login, 
@@ -417,5 +487,6 @@ export {
   updateUser, 
   deleteUser, 
   createUserByAdmin,
+  changePassword,
   logout
 };
