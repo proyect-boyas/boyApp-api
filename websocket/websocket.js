@@ -527,7 +527,26 @@ async function handleCameraMessage(cameraId, message, ws) {
       // Reenviar el frame a todos los clientes móviles conectados a esta cámara
       forwardVideoFrameToClients(cameraId, message);
       break;
+      case 'camera_heartbeat':
+      // Manejar heartbeat de la cámara
+      console.log(`❤️ Heartbeat recibido de cámara ${cameraId}`);
       
+      // Actualizar último heartbeat
+      const camera = cameraClients.get(cameraId);
+      if (camera) {
+        camera.lastHeartbeat = Date.now();
+        cameraClients.set(cameraId, camera);
+      }
+      
+      // Responder con acknowledgment
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'heartbeat_ack',
+          timestamp: Date.now(),
+          cameraId: cameraId
+        }));
+      }
+      break;
     default:
       console.log(`Mensaje no reconocido de cámara ${cameraId}:`, message.type);
   }

@@ -1,205 +1,169 @@
 import express from 'express';
-import db from '../config/database.js';
+import { cameraClients, mobileClients, hlsManager } from '../websocket/websocket.js';
 
 const router = express.Router();
 
-// Middleware para inyectar las conexiones WebSocket (CORRECCIÓN: cameraClients)
-export function injectWebSocketConnections(mobileClients, cameraClients, verifyCameraToken) {
-    return (req, res, next) => {
-        req.webSocketData = {
-            mobileClients,
-            cameraClients, // CORRECCIÓN: cambiamos cameraStreams por cameraClients
-            verifyCameraToken
-        };
-        next();
-    };
-}
+// Middleware para inyectar conexiones WebSocket
+export const injectWebSocketConnections = (mobileClients, cameraClients, verifyCameraToken) => {
+  return (req, res, next) => {
+    req.mobileClients = mobileClients;
+    req.cameraClients = cameraClients;
+    req.verifyCameraToken = verifyCameraToken;
+    next();
+  };
+};
 
-// Ruta para información del streaming
+// Endpoint de estado
+router.get('/status', (req, res) => {
+  res.json({
+    status: 'online',
+    service: 'WebSocket Streaming Server',
+    timestamp: new Date().toISOString(),
+    connections: {
+      cameras: req.cameraClients.size,
+      mobileClients: req.mobileClients.size
+    }
+  });
+});
+
+// Información de conexiones
 router.get('/info', (req, res) => {
-    const host = req.headers.host;
-    res.json({
-        streaming: true,
-        protocol: 'webrtc',
-        endpoints: {
-            websocket_mobile: `ws://${host.replace('http', 'ws')}/mobile`,
-            websocket_stream: `ws://${host.replace('http', 'ws')}/stream`,
-            websocket_webrtc: `ws://${host.replace('http', 'ws')}/webrtc`,
-            status: `${req.protocol}://${host}/api/stream/status`,
-            verify_token: `${req.protocol}://${host}/api/stream/verify-camera-token`
-        }
-    });
+  const cameraConnections = Array.from(req.cameraClients.entries()).map(([cameraId, data]) => ({
+    cameraId,
+    connectedAt: data.connectedAt || 'N/A',
+    status: 'online'
+  }));
+
+  const mobileConnections = Array.from(req.mobileClients.entries()).map(([ws, data]) => ({
+    clientId: data.clientId,
+    userId: data.userInfo?.id,
+    userName: data.userInfo?.nombre,
+    cameraId: data.cameraId,
+    connectedAt: data.connectedAt
+  }));
+
+  res.json({
+    cameras: cameraConnections,
+    mobileClients: mobileConnections,
+    totals: {
+      cameras: cameraConnections.length,
+      mobileClients: mobileConnections.length
+    }
+  });
 });
 
-// Endpoint de estado WebSocket
-router.get('/status', async (req, res) => {
-    const { mobileClients, cameraClients } = req.webSocketData;
-    
-    const cameraStatus = {};
-    cameraClients.forEach((stream, cameraId) => {
-        cameraStatus[cameraId] = {
-            connected: stream.ws.readyState === stream.ws.OPEN,
-            clients: stream.peerConnections ? stream.peerConnections.size : 0,
-            token: stream.token ? stream.token.substring(0, 10) + '...' : 'no-token'
-        };
-    });
-    
-    const mobileStatus = [];
-    mobileClients.forEach((clientInfo, ws) => {
-        mobileStatus.push({
-            userId: clientInfo.userInfo.id,
-            userName: clientInfo.userInfo.nombre,
-            cameraId: clientInfo.cameraId,
-            clientId: clientInfo.clientId,
-            connectedAt: clientInfo.connectedAt,
-            connectionActive: ws.readyState === ws.OPEN
-        });
-    });
-    
-    // Obtener información de cámaras desde la BD
-    let dbCameras = [];
-    try {
-        const result = await db.query(
-            `SELECT camara_id, modelo, estado FROM camaras WHERE estado = 'ACTIVA' ORDER BY created_at DESC`
-        );
-        dbCameras = result.rows;
-    } catch (error) {
-        console.error('Error obteniendo cámaras de BD:', error);
-    }
-    
-    res.json({
-        status: 'running',
-        protocol: 'webrtc',
-        connectedCameras: cameraClients.size,
-        connectedMobileClients: mobileClients.size,
-        activePeerConnections: Array.from(cameraClients.values()).reduce((acc, cam) => 
-            acc + (cam.peerConnections ? cam.peerConnections.size : 0), 0
-        ),
-        cameras: cameraStatus,
-        mobileClients: mobileStatus,
-        databaseCameras: dbCameras,
-        timestamp: new Date().toISOString()
-    });
-});
-
-// Endpoint para verificar token de cámara
-router.post('/verify-camera-token', async (req, res) => {
-    const { verifyCameraToken } = req.webSocketData;
-    const { token, cameraId } = req.body;
-    
-    if (!token || !cameraId) {
-        return res.status(400).json({
-            valid: false,
-            message: 'Token y cameraId requeridos'
-        });
-    }
-    
-    const isValid = await verifyCameraToken(cameraId, token);
-    
-    if (isValid) {
-        res.json({
-            valid: true,
-            message: 'Token válido'
-        });
-    } else {
-        res.status(401).json({
-            valid: false,
-            message: 'Token inválido'
-        });
-    }
-});
-
-// Endpoint para obtener lista de cámaras disponibles
+// Lista de cámaras disponibles
 router.get('/cameras', async (req, res) => {
-    try {
-        const result = await db.query(
-            `SELECT 
-                camara_id, 
-                modelo, 
-                fabricante, 
-                estado, 
-                url,
-                fecha_instalacion,
-                fecha_ultimo_mantenimiento,
-                created_at
-             FROM camaras 
-             WHERE estado = 'ACTIVA'
-             ORDER BY created_at DESC`
-        );
-        
-        const cameras = result.rows.map(camara => ({
-            id: camara.camara_id,
-            modelo: camara.modelo,
-            fabricante: camara.fabricante,
-            estado: camara.estado,
-            url: camara.url,
-            fecha_instalacion: camara.fecha_instalacion,
-            fecha_ultimo_mantenimiento: camara.fecha_ultimo_mantenimiento,
-            created_at: camara.created_at,
-            online: cameraClients.has(camara.camara_id)
-        }));
-        
-        res.json({
-            success: true,
-            cameras: cameras,
-            total: cameras.length
-        });
-        
-    } catch (error) {
-        console.error('Error obteniendo cámaras:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Error del servidor al obtener cámaras'
-        });
-    }
+  try {
+    // Aquí necesitas importar tu conexión a la base de datos
+    const db = req.db; // Asumiendo que tienes middleware de base de datos
+    
+    const result = await db.query(
+      `SELECT camara_id, modelo, fabricante, estado, url, created_at 
+       FROM camaras 
+       WHERE estado = 'ACTIVA'
+       ORDER BY created_at DESC`
+    );
+    
+    const cameras = result.rows.map(camara => ({
+      cameraId: camara.camara_id,
+      modelo: camara.modelo,
+      fabricante: camara.fabricante,
+      estado: camara.estado,
+      url: camara.url,
+      online: req.cameraClients.has(camara.camara_id), // Usar req.cameraClients
+      hlsAvailable: hlsManager.getStreamInfo(camara.camara_id) !== null,
+      createdAt: camara.created_at
+    }));
+    
+    res.json({
+      cameras: cameras,
+      total: cameras.length,
+      online: cameras.filter(cam => cam.online).length
+    });
+    
+  } catch (error) {
+    console.error('Error al obtener cámaras:', error);
+    res.status(500).json({
+      error: 'Error interno del servidor',
+      message: error.message
+    });
+  }
 });
 
-// Endpoint para obtener estadísticas del streaming
-router.get('/stats', async (req, res) => {
-    const { mobileClients, cameraClients } = req.webSocketData;
-    
-    try {
-        // Estadísticas de cámaras en BD
-        const camarasResult = await db.query(
-            `SELECT 
-                COUNT(*) as total,
-                COUNT(CASE WHEN estado = 'ACTIVA' THEN 1 END) as activas,
-                COUNT(CASE WHEN estado = 'INACTIVA' THEN 1 END) as inactivas
-             FROM camaras`
-        );
-        
-        const camarasStats = camarasResult.rows[0];
-        
-        const activePeerConnections = Array.from(cameraClients.values()).reduce((acc, cam) => 
-            acc + (cam.peerConnections ? cam.peerConnections.size : 0), 0
-        );
-        
-        res.json({
-            streaming: {
-                protocol: 'webrtc',
-                connected_cameras: cameraClients.size,
-                connected_clients: mobileClients.size,
-                active_peer_connections: activePeerConnections,
-                uptime: process.uptime()
-            },
-            database: {
-                total_camaras: parseInt(camarasStats.total),
-                camaras_activas: parseInt(camarasStats.activas),
-                camaras_inactivas: parseInt(camarasStats.inactivas)
-            },
-            server: {
-                timestamp: new Date().toISOString(),
-                node_version: process.version,
-                platform: process.platform
-            }
-        });
-        
-    } catch (error) {
-        console.error('Error obteniendo estadísticas:', error);
-        res.status(500).json({
-            error: 'Error del servidor al obtener estadísticas'
-        });
+// Estadísticas del sistema
+router.get('/stats', (req, res) => {
+  const activeHLSStreams = hlsManager.getActiveStreams();
+  
+  const stats = {
+    connections: {
+      cameras: req.cameraClients.size,
+      mobileClients: req.mobileClients.size,
+      total: req.cameraClients.size + req.mobileClients.size
+    },
+    streaming: {
+      hls: {
+        active: activeHLSStreams.length,
+        streams: activeHLSStreams.map(stream => ({
+          cameraId: stream.cameraId,
+          duration: Math.floor((Date.now() - stream.startTime) / 1000),
+          playlistUrl: stream.playlistUrl
+        }))
+      }
+    },
+    system: {
+      uptime: process.uptime(),
+      memory: process.memoryUsage(),
+      timestamp: new Date().toISOString()
     }
+  };
+  
+  res.json(stats);
+});
+
+// Endpoint para forzar desconexión de cámara
+router.post('/cameras/:cameraId/disconnect', (req, res) => {
+  const { cameraId } = req.params;
+  
+  const camera = req.cameraClients.get(cameraId);
+  if (camera && camera.ws) {
+    camera.ws.close(1000, 'Desconexión administrativa');
+    req.cameraClients.delete(cameraId);
+    
+    res.json({
+      message: `Cámara ${cameraId} desconectada`,
+      cameraId: cameraId
+    });
+  } else {
+    res.status(404).json({
+      error: 'Cámara no encontrada o no conectada',
+      cameraId: cameraId
+    });
+  }
+});
+
+// Endpoint para reiniciar stream HLS
+router.post('/cameras/:cameraId/restart-hls', (req, res) => {
+  const { cameraId } = req.params;
+  
+  // Detener stream existente
+  hlsManager.stopHLSStream(cameraId);
+  
+  // Iniciar nuevo stream
+  const streamInfo = hlsManager.startHLSStream(cameraId);
+  
+  if (streamInfo) {
+    res.json({
+      message: 'Stream HLS reiniciado',
+      cameraId: cameraId,
+      playlistUrl: streamInfo.playlistUrl
+    });
+  } else {
+    res.status(500).json({
+      error: 'Error al reiniciar stream HLS',
+      cameraId: cameraId
+    });
+  }
 });
 
 export default router;
