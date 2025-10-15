@@ -62,7 +62,7 @@ startHLSStream(cameraId, initialVideoData = null) {
     // Crear stream con manejo de errores
     const videoStream = new PassThrough();
     
-    // CONFIGURACIÓN MEJORADA PARA MPEG-TS con H.264
+    // CONFIGURACIÓN OPTIMIZADA PARA ALTO RENDIMIENTO
     const ffmpegProcess = ffmpeg(videoStream)
       .inputFormat('mpegts')
       .inputOptions([
@@ -73,29 +73,26 @@ startHLSStream(cameraId, initialVideoData = null) {
         '-avoid_negative_ts make_zero',
         '-use_wallclock_as_timestamps 1'
       ])
-      .videoCodec('libx264')  // Cambiar de 'copy' a 'libx264' para re-encoding
-      .videoBitrate('1000k')
-      .size('1280x720')       // Especificar la resolución que mencionaste
-      .fps(25)                // Establecer FPS
+      .videoCodec('libx264')
       .outputOptions([
-        '-preset ultrafast',  // Para baja latencia
-        '-tune zerolatency',  // Para streaming en tiempo real
-        '-crf 23',
-        '-maxrate 1000k',
-        '-bufsize 2000k',
-        '-g 50',              // GOP size
-        '-keyint_min 25',
+        '-preset ultrafast',    // Máxima velocidad
+        '-tune zerolatency',    // Mínima latencia
+        '-crf 28',              // Calidad aceptable para reducir bitrate
+        '-maxrate 800k',        // Limitar bitrate máximo
+        '-bufsize 1600k',
+        '-r 20',                // Reducir framerate a 20fps
+        '-g 40',                // GOP size más pequeño
+        '-keyint_min 20',
         '-f hls',
-        '-hls_time 2',        // Reducir a 2 segundos
-        '-hls_list_size 5',
+        '-hls_time 2',          // Segmentos más cortos
+        '-hls_list_size 4',     // Menos segmentos en playlist
         '-hls_segment_filename', path.join(streamPath, 'segment%03d.ts'),
         '-hls_flags delete_segments+append_list',
         '-hls_playlist_type event',
-        '-hls_delete_threshold 3',
-        '-hls_start_number_source datetime'
+        '-threads 1'            // Usar solo 1 thread para reducir carga
       ])
       .audioCodec('aac')
-      .audioBitrate('128k')
+      .audioBitrate('96k')      // Reducir bitrate de audio
       .output(path.join(streamPath, 'playlist.m3u8'))
       .on('start', (commandLine) => {
         console.log(`🟢 FFmpeg iniciado para ${cameraId}`);
@@ -112,7 +109,8 @@ startHLSStream(cameraId, initialVideoData = null) {
         }
       })
       .on('progress', (progress) => {
-        console.log(`⏱️ FFmpeg [${cameraId}]: ${progress.timemark} - ${progress.frames || 0} frames`);
+        const frames = progress.frames || 0;
+        console.log(`⏱️ FFmpeg [${cameraId}]: ${progress.timemark} - ${frames} frames`);
       })
       .on('error', (err, stdout, stderr) => {
         console.error(`❌ Error FFmpeg para ${cameraId}:`, err.message);
@@ -137,6 +135,8 @@ startHLSStream(cameraId, initialVideoData = null) {
       lastDataTime: Date.now(),
       bytesReceived: 0,
       framesReceived: 0,
+      droppedFrames: 0,
+      backpressure: false,
       playlistUrl: `/hls/${cameraId}/playlist.m3u8`,
       isActive: true
     };
@@ -156,6 +156,27 @@ startHLSStream(cameraId, initialVideoData = null) {
   }
 }
 
+
+ 
+startPerformanceMonitor() {
+  setInterval(() => {
+    this.activeStreams.forEach((streamInfo, cameraId) => {
+      const now = Date.now();
+      const elapsed = (now - streamInfo.startTime) / 1000;
+      const fps = streamInfo.framesReceived / elapsed;
+      const bitrate = (streamInfo.bytesReceived * 8) / elapsed / 1000; // kbps
+      
+      console.log(`📈 Performance [${cameraId}]: ${fps.toFixed(1)} fps, ${bitrate.toFixed(1)} kbps, Dropped: ${streamInfo.droppedFrames || 0}`);
+    });
+  }, 10000); // Cada 10 segundos
+}
+
+// Llamar en el constructor
+constructor() {
+  this.activeStreams = new Map();
+  this.setupCleanupInterval();
+  this.startPerformanceMonitor();
+}
 
 
 checkHLSHealth(cameraId) {
@@ -188,59 +209,102 @@ checkHLSHealth(cameraId) {
   }
 }
 
-
-  writeVideoData(cameraId, videoData) {
-    const streamInfo = this.activeStreams.get(cameraId);
-    
-    if (!streamInfo || !streamInfo.isActive) {
-      console.warn(`⚠️ Stream HLS no activo para ${cameraId}`);
-      return false;
-    }
-
-    if (!streamInfo.videoStream || streamInfo.videoStream.destroyed) {
-      console.error(`❌ Stream de video destruido para ${cameraId}`);
-      this.stopHLSStream(cameraId);
-      return false;
-    }
-
-    try {
-      // Verificar que los datos sean válidos
-      if (!videoData || !Buffer.isBuffer(videoData) || videoData.length === 0) {
-        console.warn(`⚠️ Datos de video inválidos para ${cameraId}`);
-        return false;
-      }
-
-      // Actualizar estadísticas
-      streamInfo.bytesReceived += videoData.length;
-      streamInfo.framesReceived++;
-      streamInfo.lastDataTime = Date.now();
-
-      // Escribir datos en el stream
-      const canWrite = streamInfo.videoStream.write(videoData);
-      
-      if (!canWrite) {
-        console.warn(`⏳ Buffer lleno para ${cameraId}, esperando drenaje...`);
-        streamInfo.videoStream.once('drain', () => {
-          console.log(`✅ Buffer drenado para ${cameraId}`);
-        });
-      }
-
-      // Log cada 100 frames
-      if (streamInfo.framesReceived % 100 === 0) {
-        console.log(`📥 HLS [${cameraId}]: ${streamInfo.framesReceived} frames, ${streamInfo.bytesReceived} bytes`);
-        
-        // Verificar si se están creando segmentos
-        this.checkSegmentCreation(cameraId);
-      }
-
-      return true;
-
-    } catch (error) {
-      console.error(`❌ Error escribiendo datos de video para ${cameraId}:`, error);
-      this.stopHLSStream(cameraId);
-      return false;
-    }
+writeVideoData(cameraId, videoData) {
+  const streamInfo = this.activeStreams.get(cameraId);
+  
+  if (!streamInfo || !streamInfo.isActive) {
+    console.warn(`⚠️ Stream HLS no activo para ${cameraId}`);
+    return false;
   }
+
+  if (!streamInfo.videoStream || streamInfo.videoStream.destroyed) {
+    console.error(`❌ Stream de video destruido para ${cameraId}`);
+    this.stopHLSStream(cameraId);
+    return false;
+  }
+
+  try {
+    // Verificar que los datos sean válidos
+    if (!videoData || !Buffer.isBuffer(videoData) || videoData.length === 0) {
+      console.warn(`⚠️ Datos de video inválidos para ${cameraId}`);
+      return false;
+    }
+
+    // CONTROL DE VELOCIDAD - Si el buffer está lleno, descartar frames antiguos
+    const highWaterMark = streamInfo.videoStream.writableHighWaterMark || 16384;
+    const bufferLength = streamInfo.videoStream.writableLength || 0;
+    
+    // Si el buffer está más del 80% lleno, descartar frame para mantener la sincronización
+    if (bufferLength > highWaterMark * 0.8) {
+      console.warn(`🚨 Buffer al ${Math.round((bufferLength / highWaterMark) * 100)}% - Descargando buffer para ${cameraId}`);
+      
+      // Forzar drenaje del buffer
+      streamInfo.videoStream.once('drain', () => {
+        console.log(`✅ Buffer descargado para ${cameraId}`);
+      });
+      
+      // En lugar de esperar, continuar procesando pero monitorear
+      streamInfo.droppedFrames = (streamInfo.droppedFrames || 0) + 1;
+      
+      // Log cada 50 frames descartados
+      if (streamInfo.droppedFrames % 50 === 0) {
+        console.log(`📉 ${cameraId}: ${streamInfo.droppedFrames} frames descartados por buffer lleno`);
+      }
+      
+      return false; // No escribir este frame
+    }
+
+    // Actualizar estadísticas
+    streamInfo.bytesReceived += videoData.length;
+    streamInfo.framesReceived++;
+    streamInfo.lastDataTime = Date.now();
+
+    // Escribir datos en el stream con timeout
+    const canWrite = streamInfo.videoStream.write(videoData);
+    
+    if (!canWrite) {
+      // Usar backpressure management más agresivo
+      console.warn(`⏳ Buffer lleno para ${cameraId}, aplicando control de flujo...`);
+      
+      // Establecer flag de backpressure
+      streamInfo.backpressure = true;
+      
+      // Esperar drenaje pero con timeout
+      const drainPromise = new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          console.warn(`⏰ Timeout de drenaje para ${cameraId}, continuando...`);
+          resolve(false);
+        }, 100); // Timeout corto
+        
+        streamInfo.videoStream.once('drain', () => {
+          clearTimeout(timeout);
+          console.log(`✅ Buffer drenado para ${cameraId}`);
+          streamInfo.backpressure = false;
+          resolve(true);
+        });
+      });
+      
+      // No esperar sincrónicamente, continuar procesamiento
+    }
+
+    // Log cada 100 frames
+    if (streamInfo.framesReceived % 100 === 0) {
+      const bufferUsage = streamInfo.videoStream.writableLength / highWaterMark * 100;
+      console.log(`📥 HLS [${cameraId}]: ${streamInfo.framesReceived} frames, ${streamInfo.bytesReceived} bytes, Buffer: ${Math.round(bufferUsage)}%`);
+      
+      // Verificar si se están creando segmentos
+      this.checkSegmentCreation(cameraId);
+    }
+
+    return true;
+
+  } catch (error) {
+    console.error(`❌ Error escribiendo datos de video para ${cameraId}:`, error);
+    this.stopHLSStream(cameraId);
+    return false;
+  }
+}
+
 
   // Verificar si se están creando segmentos
   checkSegmentCreation(cameraId) {
@@ -689,33 +753,24 @@ case 'video_frame':
         break;
       }
       
-      console.log(`📦 Datos recibidos: ${videoData.length} bytes, primer byte: 0x${videoData[0]?.toString(16)}`);
-      
-      // Para debugging: mostrar información del stream periódicamente
-      if (Math.random() < 0.01) { // 1% de las veces
-        console.log(`🔍 Debug ${cameraId}:`, {
-          length: videoData.length,
-          firstBytes: videoData.slice(0, 4).toString('hex'),
-          isValid: isValidMPEGTS(videoData)
-        });
+      // CONTROL DE TASA - Limitar procesamiento si hay backpressure
+      const streamInfo = hlsManager.getStreamInfo(cameraId);
+      if (streamInfo && streamInfo.backpressure) {
+        // Durante backpressure, procesar solo 1 de cada 3 frames
+        streamInfo.skipCounter = (streamInfo.skipCounter || 0) + 1;
+        if (streamInfo.skipCounter % 3 !== 0) {
+          console.log(`⏩ Saltando frame por backpressure en ${cameraId}`);
+          break;
+        }
       }
       
-      // Siempre intentar procesar los datos, incluso si la validación falla
-      // (pueden ser fragmentos válidos de video)
+      console.log(`📦 Datos recibidos: ${videoData.length} bytes, primer byte: 0x${videoData[0]?.toString(16)}`);
+      
+      // Siempre intentar procesar los datos
       const success = hlsManager.writeVideoData(cameraId, videoData);
       
       if (!success) {
         console.warn(`⚠️ No se pudo escribir datos HLS para ${cameraId}`);
-        
-        // Verificar si el stream sigue activo
-        const streamInfo = hlsManager.getStreamInfo(cameraId);
-        if (!streamInfo || !streamInfo.isActive) {
-          console.log(`🔄 Reiniciando stream HLS para ${cameraId}`);
-          hlsManager.stopHLSStream(cameraId);
-          setTimeout(() => {
-            hlsManager.startHLSStream(cameraId);
-          }, 500);
-        }
       }
       
     } catch (error) {
