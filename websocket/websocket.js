@@ -22,7 +22,7 @@ const cameraClients = new Map(); // cameraId -> { ws, token, peerConnections }
 
 // Almacenar streams HLS activos
 const hlsStreams = new Map(); // cameraId -> { ffmpegProcess, streamPath, videoStream }
-
+const pendingOffers = new Map();
 // Configuración del JWT
 const JWT_SECRET = process.env.JWT_SECRET;
 
