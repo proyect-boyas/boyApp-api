@@ -33,10 +33,15 @@ const HLS_BASE_PATH = path.join(__dirname, 'hls-streams');
 fs.ensureDirSync(HLS_BASE_PATH);
 
 class HLSStreamManager {
-  constructor() {
-    this.activeStreams = new Map();
-    this.setupCleanupInterval();
-  }
+
+
+
+// Llamar en el constructor
+constructor() {
+  this.activeStreams = new Map();
+  this.setupCleanupInterval();
+  this.startPerformanceMonitor();
+}
 
   setupCleanupInterval() {
     // Limpiar streams inactivos cada 5 minutos
@@ -156,7 +161,6 @@ startHLSStream(cameraId, initialVideoData = null) {
   }
 }
 
-
  
 startPerformanceMonitor() {
   setInterval(() => {
@@ -170,15 +174,6 @@ startPerformanceMonitor() {
     });
   }, 10000); // Cada 10 segundos
 }
-
-// Llamar en el constructor
-constructor() {
-  this.activeStreams = new Map();
-  this.setupCleanupInterval();
-  this.startPerformanceMonitor();
-}
-
-
 checkHLSHealth(cameraId) {
   const streamInfo = this.activeStreams.get(cameraId);
   if (!streamInfo) return false;
