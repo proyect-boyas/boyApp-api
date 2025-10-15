@@ -35,11 +35,17 @@ fs.ensureDirSync(HLS_BASE_PATH);
 class HLSStreamManager {
   constructor() {
     this.activeStreams = new Map();
+    this.setupCleanupInterval();
   }
 
-  startHLSStream(cameraId) {
+  setupCleanupInterval() {
+    // Limpiar streams inactivos cada 5 minutos
+    setInterval(() => this.cleanupOldStreams(), 5 * 60 * 1000);
+  }
+
+  startHLSStream(cameraId, initialVideoData = null) {
     try {
-      // Si ya existe un stream, lo detenemos primero
+      // Detener stream existente
       if (this.activeStreams.has(cameraId)) {
         this.stopHLSStream(cameraId);
       }
@@ -47,42 +53,59 @@ class HLSStreamManager {
       const streamPath = path.join(HLS_BASE_PATH, cameraId);
       fs.ensureDirSync(streamPath);
 
-      // Crear un stream de passthrough para los datos de video
-      const videoStream = new PassThrough();
+      // Limpiar segmentos anteriores
+      this.cleanupSegments(streamPath);
 
       console.log(`🎬 Iniciando conversión HLS para cámara ${cameraId}`);
+      console.log(`📁 Directorio HLS: ${streamPath}`);
 
+      // Crear stream con manejo de errores
+      const videoStream = new PassThrough();
+      
+      // Configurar FFmpeg con parámetros más robustos
       const ffmpegProcess = ffmpeg(videoStream)
+        .inputFormat('mpegts') // Especificar formato de entrada
         .inputOptions([
-          '-fflags nobuffer',
+          '-fflags +genpts',   // Generar PTS si no existen
           '-flags low_delay',
           '-probesize 32',
-          '-analyzeduration 0'
+          '-analyzeduration 0',
+          '-avoid_negative_ts make_zero'
         ])
+        .videoCodec('copy')    // Usar copy en lugar de c copy
+        .audioCodec('copy')
         .outputOptions([
-          '-c copy',
           '-f hls',
-          '-hls_time 2',
-          '-hls_list_size 5',
+          '-hls_time 4',       // Aumentar a 4 segundos
+          '-hls_list_size 6',
           '-hls_segment_filename', path.join(streamPath, 'segment%03d.ts'),
-          '-hls_flags delete_segments',
-          '-hls_playlist_type event'
+          '-hls_flags delete_segments+append_list',
+          '-hls_playlist_type event',
+          '-hls_delete_threshold 3',
+          '-hls_start_number_source datetime'
         ])
         .output(path.join(streamPath, 'playlist.m3u8'))
         .on('start', (commandLine) => {
-          console.log(`🟢 FFmpeg iniciado para ${cameraId}: ${commandLine}`);
+          console.log(`🟢 FFmpeg iniciado para ${cameraId}`);
+          console.log(`📝 Comando: ${commandLine}`);
         })
         .on('stderr', (stderrLine) => {
-          // Logs detallados de FFmpeg
-          if (stderrLine.includes('frame=') || stderrLine.includes('time=')) {
+          // Filtrar logs útiles
+          if (stderrLine.includes('Opening') || 
+              stderrLine.includes('frame=') || 
+              stderrLine.includes('segment') ||
+              stderrLine.includes('error')) {
             console.log(`📊 FFmpeg [${cameraId}]: ${stderrLine.trim()}`);
           }
         })
         .on('progress', (progress) => {
-          console.log(`⏱️ FFmpeg [${cameraId}]: Progreso - ${progress.timemark}`);
+          console.log(`⏱️ FFmpeg [${cameraId}]: ${progress.timemark} - ${progress.frames} frames`);
         })
-        .on('error', (err) => {
-          console.error(`❌ Error FFmpeg para ${cameraId}:`, err);
+        .on('error', (err, stdout, stderr) => {
+          console.error(`❌ Error FFmpeg para ${cameraId}:`, err.message);
+          if (stderr) {
+            console.error(`🔍 Stderr: ${stderr}`);
+          }
           this.stopHLSStream(cameraId);
         })
         .on('end', () => {
@@ -98,10 +121,20 @@ class HLSStreamManager {
         videoStream,
         ffmpegProcess,
         startTime: Date.now(),
-        playlistUrl: `/hls/${cameraId}/playlist.m3u8`
+        lastDataTime: Date.now(),
+        bytesReceived: 0,
+        framesReceived: 0,
+        playlistUrl: `/hls/${cameraId}/playlist.m3u8`,
+        isActive: true
       };
 
       this.activeStreams.set(cameraId, streamInfo);
+
+      // Si hay datos iniciales, escribirlos
+      if (initialVideoData) {
+        this.writeVideoData(cameraId, initialVideoData);
+      }
+
       return streamInfo;
 
     } catch (error) {
@@ -110,45 +143,111 @@ class HLSStreamManager {
     }
   }
 
-  getStreamInfo(cameraId) {
-    return this.activeStreams.get(cameraId);
+  writeVideoData(cameraId, videoData) {
+    const streamInfo = this.activeStreams.get(cameraId);
+    
+    if (!streamInfo || !streamInfo.isActive) {
+      console.warn(`⚠️ Stream HLS no activo para ${cameraId}`);
+      return false;
+    }
+
+    if (!streamInfo.videoStream || streamInfo.videoStream.destroyed) {
+      console.error(`❌ Stream de video destruido para ${cameraId}`);
+      this.stopHLSStream(cameraId);
+      return false;
+    }
+
+    try {
+      // Verificar que los datos sean válidos
+      if (!videoData || !Buffer.isBuffer(videoData) || videoData.length === 0) {
+        console.warn(`⚠️ Datos de video inválidos para ${cameraId}`);
+        return false;
+      }
+
+      // Actualizar estadísticas
+      streamInfo.bytesReceived += videoData.length;
+      streamInfo.framesReceived++;
+      streamInfo.lastDataTime = Date.now();
+
+      // Escribir datos en el stream
+      const canWrite = streamInfo.videoStream.write(videoData);
+      
+      if (!canWrite) {
+        console.warn(`⏳ Buffer lleno para ${cameraId}, esperando drenaje...`);
+        streamInfo.videoStream.once('drain', () => {
+          console.log(`✅ Buffer drenado para ${cameraId}`);
+        });
+      }
+
+      // Log cada 100 frames
+      if (streamInfo.framesReceived % 100 === 0) {
+        console.log(`📥 HLS [${cameraId}]: ${streamInfo.framesReceived} frames, ${streamInfo.bytesReceived} bytes`);
+        
+        // Verificar si se están creando segmentos
+        this.checkSegmentCreation(cameraId);
+      }
+
+      return true;
+
+    } catch (error) {
+      console.error(`❌ Error escribiendo datos de video para ${cameraId}:`, error);
+      this.stopHLSStream(cameraId);
+      return false;
+    }
   }
 
-writeVideoData(cameraId, videoData) {
+  // Verificar si se están creando segmentos
+  checkSegmentCreation(cameraId) {
     const streamInfo = this.activeStreams.get(cameraId);
-    if (streamInfo && streamInfo.videoStream && !streamInfo.videoStream.destroyed) {
-      try {
-        // AGREGAR LOGS DE DIAGNÓSTICO
-        if (Math.random() < 0.01) { // Log el 1% de los frames para no saturar
-          console.log(`📥 HLS [${cameraId}]: Recibiendo datos de video - ${videoData.length} bytes`);
-        }
-        
-        streamInfo.videoStream.write(videoData);
-        
-        // Contador de datos recibidos
-        if (!streamInfo.bytesReceived) streamInfo.bytesReceived = 0;
-        streamInfo.bytesReceived += videoData.length;
-        
-      } catch (error) {
-        console.error(`❌ Error escribiendo datos de video para ${cameraId}:`, error);
-      }
+    if (!streamInfo) return;
+
+    const segmentFiles = fs.readdirSync(streamInfo.streamPath)
+      .filter(file => file.endsWith('.ts'));
+    
+    if (segmentFiles.length > 0) {
+      console.log(`✅ Segmentos creados para ${cameraId}: ${segmentFiles.length} archivos`);
+      console.log(`📋 Playlist: ${streamInfo.streamPath}/playlist.m3u8`);
     } else {
-      console.warn(`⚠️ Stream HLS no disponible para ${cameraId}`);
+      console.warn(`⚠️ No se han creado segmentos para ${cameraId}`);
+    }
+  }
+
+  // Limpiar segmentos antiguos
+  cleanupSegments(streamPath) {
+    try {
+      const files = fs.readdirSync(streamPath);
+      files.forEach(file => {
+        if (file.endsWith('.ts') || file === 'playlist.m3u8') {
+          fs.removeSync(path.join(streamPath, file));
+        }
+      });
+      console.log(`🧹 Segmentos anteriores limpiados en ${streamPath}`);
+    } catch (error) {
+      console.error(`Error limpiando segmentos: ${error.message}`);
     }
   }
 
   stopHLSStream(cameraId) {
     const streamInfo = this.activeStreams.get(cameraId);
     if (streamInfo) {
+      streamInfo.isActive = false;
+      
       if (streamInfo.videoStream && !streamInfo.videoStream.destroyed) {
         streamInfo.videoStream.end();
+        streamInfo.videoStream.destroy();
       }
+      
       if (streamInfo.ffmpegProcess) {
         streamInfo.ffmpegProcess.kill('SIGTERM');
       }
+      
       this.activeStreams.delete(cameraId);
       console.log(`🛑 Stream HLS detenido para ${cameraId}`);
     }
+  }
+
+  getStreamInfo(cameraId) {
+    return this.activeStreams.get(cameraId);
   }
 
   getActiveStreams() {
@@ -157,10 +256,11 @@ writeVideoData(cameraId, videoData) {
 
   cleanupOldStreams() {
     const now = Date.now();
-    const maxAge = 30 * 60 * 1000; // 30 minutos
+    const maxInactiveTime = 2 * 60 * 1000; // 2 minutos sin datos
 
     this.activeStreams.forEach((streamInfo, cameraId) => {
-      if (now - streamInfo.startTime > maxAge) {
+      if (now - streamInfo.lastDataTime > maxInactiveTime) {
+        console.log(`🧹 Limpiando stream inactivo: ${cameraId}`);
         this.stopHLSStream(cameraId);
       }
     });
@@ -527,27 +627,41 @@ async function handleCameraMessage(cameraId, message, ws) {
       }
       break;
       
-    case 'video_frame':
-      // La cámara envía frames de video (formato MPEG-TS o similar)
-      // console.log(`🎥 Cámara ${cameraId} envió frame de video (size: ${message.size || 'N/A'} bytes)`);
+case 'video_frame':
+  // La cámara envía frames de video
+  console.log(`🎥 Cámara ${cameraId} envió frame de video (${message.size || 'N/A'} bytes)`);
+  
+  // Procesar frame para HLS
+  if (message.data) {
+    try {
+      // Convertir base64 a buffer
+      const videoData = Buffer.from(message.data, 'base64');
       
-      // Procesar frame para HLS
-      if (message.data) {
-        try {
-          // Convertir base64 a buffer
-          const videoData = Buffer.from(message.data, 'base64');
-          
-          // Escribir en el stream HLS
-          hlsManager.writeVideoData(cameraId, videoData);
-          
-        } catch (error) {
-          console.error(`❌ Error procesando frame HLS para ${cameraId}:`, error);
+      // Verificar que sean datos MPEG-TS válidos
+      if (this.isValidMPEGTS(videoData)) {
+        // Escribir en el stream HLS
+        const success = hlsManager.writeVideoData(cameraId, videoData);
+        
+        if (!success) {
+          console.warn(`⚠️ No se pudo escribir datos HLS para ${cameraId}, reiniciando stream...`);
+          // Reiniciar stream HLS
+          hlsManager.stopHLSStream(cameraId);
+          setTimeout(() => {
+            hlsManager.startHLSStream(cameraId, videoData);
+          }, 1000);
         }
+      } else {
+        console.warn(`⚠️ Datos MPEG-TS inválidos de ${cameraId}`);
       }
       
-      // Reenviar el frame a todos los clientes móviles conectados a esta cámara
-      forwardVideoFrameToClients(cameraId, message);
-      break;
+    } catch (error) {
+      console.error(`❌ Error procesando frame HLS para ${cameraId}:`, error);
+    }
+  }
+  
+  // Reenviar el frame a clientes (si es necesario)
+  forwardVideoFrameToClients(cameraId, message);
+  break; 
       case 'camera_heartbeat':
       // Manejar heartbeat de la cámara
       console.log(`❤️ Heartbeat recibido de cámara ${cameraId}`);
@@ -572,7 +686,11 @@ async function handleCameraMessage(cameraId, message, ws) {
       console.log(`Mensaje no reconocido de cámara ${cameraId}:`, message.type);
   }
 }
-
+function isValidMPEGTS(buffer) {
+  // Verificar sync byte de MPEG-TS (0x47 cada 188 bytes)
+  if (buffer.length < 188) return false;
+  return buffer[0] === 0x47;
+};
 // Manejar mensajes móviles
 async function handleMobileMessage(ws, message) {
   const clientInfo = mobileClients.get(ws);
