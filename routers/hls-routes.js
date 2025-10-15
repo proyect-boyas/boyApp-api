@@ -2,7 +2,7 @@ import express from 'express';
 import fs from 'fs-extra';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { hlsManagerm,cameraClients } from '../websocket/websocket.js';
+import { cameraClients } from '../websocket/websocket.js';
  
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = express.Router();
