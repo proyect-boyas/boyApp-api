@@ -60,10 +60,10 @@ class HLSStreamManager {
           '-analyzeduration 0'
         ])
         .outputOptions([
-          '-c copy', // Copiar sin re-encodificar
+          '-c copy',
           '-f hls',
-          '-hls_time 2', // Segmentos de 2 segundos
-          '-hls_list_size 5', // Mantener 5 segmentos en la playlist
+          '-hls_time 2',
+          '-hls_list_size 5',
           '-hls_segment_filename', path.join(streamPath, 'segment%03d.ts'),
           '-hls_flags delete_segments',
           '-hls_playlist_type event'
@@ -71,6 +71,15 @@ class HLSStreamManager {
         .output(path.join(streamPath, 'playlist.m3u8'))
         .on('start', (commandLine) => {
           console.log(`🟢 FFmpeg iniciado para ${cameraId}: ${commandLine}`);
+        })
+        .on('stderr', (stderrLine) => {
+          // Logs detallados de FFmpeg
+          if (stderrLine.includes('frame=') || stderrLine.includes('time=')) {
+            console.log(`📊 FFmpeg [${cameraId}]: ${stderrLine.trim()}`);
+          }
+        })
+        .on('progress', (progress) => {
+          console.log(`⏱️ FFmpeg [${cameraId}]: Progreso - ${progress.timemark}`);
         })
         .on('error', (err) => {
           console.error(`❌ Error FFmpeg para ${cameraId}:`, err);
@@ -105,14 +114,26 @@ class HLSStreamManager {
     return this.activeStreams.get(cameraId);
   }
 
-  writeVideoData(cameraId, videoData) {
+writeVideoData(cameraId, videoData) {
     const streamInfo = this.activeStreams.get(cameraId);
     if (streamInfo && streamInfo.videoStream && !streamInfo.videoStream.destroyed) {
       try {
+        // AGREGAR LOGS DE DIAGNÓSTICO
+        if (Math.random() < 0.01) { // Log el 1% de los frames para no saturar
+          console.log(`📥 HLS [${cameraId}]: Recibiendo datos de video - ${videoData.length} bytes`);
+        }
+        
         streamInfo.videoStream.write(videoData);
+        
+        // Contador de datos recibidos
+        if (!streamInfo.bytesReceived) streamInfo.bytesReceived = 0;
+        streamInfo.bytesReceived += videoData.length;
+        
       } catch (error) {
         console.error(`❌ Error escribiendo datos de video para ${cameraId}:`, error);
       }
+    } else {
+      console.warn(`⚠️ Stream HLS no disponible para ${cameraId}`);
     }
   }
 
