@@ -637,8 +637,18 @@ case 'video_frame':
       // Convertir base64 a buffer
       const videoData = Buffer.from(message.data, 'base64');
       
+      // Verificación básica de datos
+      if (!videoData || videoData.length === 0) {
+        console.warn(`⚠️ Datos de video vacíos de ${cameraId}`);
+        break;
+      }
+      
+      console.log(`📦 Datos MPEG-TS recibidos: ${videoData.length} bytes, primer byte: 0x${videoData[0]?.toString(16)}`);
+      
       // Verificar que sean datos MPEG-TS válidos
-      if (this.isValidMPEGTS(videoData)) {
+      if (isValidMPEGTS(videoData)) {
+        console.log(`✅ Datos MPEG-TS válidos para ${cameraId}`);
+        
         // Escribir en el stream HLS
         const success = hlsManager.writeVideoData(cameraId, videoData);
         
@@ -651,7 +661,12 @@ case 'video_frame':
           }, 1000);
         }
       } else {
-        console.warn(`⚠️ Datos MPEG-TS inválidos de ${cameraId}`);
+        console.warn(`⚠️ Datos MPEG-TS inválidos de ${cameraId}, longitud: ${videoData.length} bytes`);
+        // Intentar procesar de todos modos, podría ser un fragmento
+        const fallbackSuccess = hlsManager.writeVideoData(cameraId, videoData);
+        if (fallbackSuccess) {
+          console.log(`🟡 Datos procesados en modo fallback para ${cameraId}`);
+        }
       }
       
     } catch (error) {
@@ -661,7 +676,9 @@ case 'video_frame':
   
   // Reenviar el frame a clientes (si es necesario)
   forwardVideoFrameToClients(cameraId, message);
-  break; 
+  break;
+
+
       case 'camera_heartbeat':
       // Manejar heartbeat de la cámara
       console.log(`❤️ Heartbeat recibido de cámara ${cameraId}`);
@@ -687,10 +704,41 @@ case 'video_frame':
   }
 }
 function isValidMPEGTS(buffer) {
-  // Verificar sync byte de MPEG-TS (0x47 cada 188 bytes)
-  if (buffer.length < 188) return false;
-  return buffer[0] === 0x47;
-};
+  try {
+    // Verificar que sea un buffer válido
+    if (!Buffer.isBuffer(buffer) || buffer.length < 188) {
+      return false;
+    }
+    
+    // Verificar sync byte de MPEG-TS (0x47)
+    const syncByte = 0x47;
+    
+    // Verificar el primer sync byte
+    if (buffer[0] !== syncByte) {
+      return false;
+    }
+    
+    // Para mayor robustez, verificar múltiples sync bytes
+    // en posiciones esperadas (cada 188 bytes para MPEG-TS estándar)
+    const packetSize = 188;
+    let validSyncBytes = 0;
+    const checksToPerform = Math.min(3, Math.floor(buffer.length / packetSize));
+    
+    for (let i = 0; i < checksToPerform; i++) {
+      const pos = i * packetSize;
+      if (pos < buffer.length && buffer[pos] === syncByte) {
+        validSyncBytes++;
+      }
+    }
+    
+    // Considerar válido si al menos 2 de 3 sync bytes son correctos
+    return validSyncBytes >= 2;
+    
+  } catch (error) {
+    console.error('Error validando MPEG-TS:', error);
+    return false;
+  }
+}
 // Manejar mensajes móviles
 async function handleMobileMessage(ws, message) {
   const clientInfo = mobileClients.get(ws);
