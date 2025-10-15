@@ -16,8 +16,7 @@ import hlsRoutes from './routers/hls-routes.js';
 import { initializeWebSocket, mobileClients, cameraClients, verifyCameraToken } from './websocket/websocket.js';
 
 // Importar rutas de streaming
-// import streamRoutes, { injectWebSocketConnections } from './routers/streamRoutes.js';
-import streamRoutes from './routers/streamRoutes.js';
+import streamRoutes, { injectWebSocketConnections } from './routers/streamRoutes.js';
 
 dotenv.config();
 
@@ -33,15 +32,13 @@ app.use(express.static('public'));
 app.use('/api', hlsRoutes);
 
 // Ruta de estado
-app.use('/api/stream', 
-  (req, res, next) => {
-    req.mobileClients = mobileClients;
-    req.cameraClients = cameraClients;
-    req.verifyCameraToken = verifyCameraToken;
-    next();
-  }, 
-  streamRoutes
-);
+app.get('/api/status', (req, res) => {
+  res.json({ 
+    status: 'online', 
+    service: 'WebSocket HLS Stream Server',
+    timestamp: new Date().toISOString()
+  });
+});
 initializeWebSocket(server);
 
 // Middleware básico
